@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5379960A302B8DC200E667FB /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 53799609302B8DC200E667FB /* Supabase */; };
+		53BF4DF2302AEC1400BBA166 /* Food4ThoughtCore in Frameworks */ = {isa = PBXBuildFile; productRef = 53BF4DF1302AEC1400BBA166 /* Food4ThoughtCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		53BF4DD4302AE9B900BBA166 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +34,22 @@
 		53BF4DDD302AE9B900BBA166 /* Food4ThoughtUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Food4ThoughtUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5379960F302B95FF00E667FB /* Exceptions for "Food4Thought" folder in "Food4Thought" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 53BF4DC2302AE9B600BBA166 /* Food4Thought */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		53BF4DC5302AE9B600BBA166 /* Food4Thought */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5379960F302B95FF00E667FB /* Exceptions for "Food4Thought" folder in "Food4Thought" target */,
+			);
 			path = Food4Thought;
 			sourceTree = "<group>";
 		};
@@ -52,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5379960A302B8DC200E667FB /* Supabase in Frameworks */,
+				53BF4DF2302AEC1400BBA166 /* Food4ThoughtCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,12 +92,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		53799608302B8DC200E667FB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		53BF4DBA302AE9B600BBA166 = {
 			isa = PBXGroup;
 			children = (
 				53BF4DC5302AE9B600BBA166 /* Food4Thought */,
 				53BF4DD6302AE9B900BBA166 /* Food4ThoughtTests */,
 				53BF4DE0302AE9B900BBA166 /* Food4ThoughtUITests */,
+				53799608302B8DC200E667FB /* Frameworks */,
 				53BF4DC4302AE9B600BBA166 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +140,8 @@
 			);
 			name = Food4Thought;
 			packageProductDependencies = (
+				53BF4DF1302AEC1400BBA166 /* Food4ThoughtCore */,
+				53799609302B8DC200E667FB /* Supabase */,
 			);
 			productName = Food4Thought;
 			productReference = 53BF4DC3302AE9B600BBA166 /* Food4Thought.app */;
@@ -195,6 +225,10 @@
 			);
 			mainGroup = 53BF4DBA302AE9B600BBA166;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				53BF4DF0302AEC1400BBA166 /* XCLocalSwiftPackageReference "../Food4ThoughtCore" */,
+				53799607302B8C8000E667FB /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 53BF4DC4302AE9B600BBA166 /* Products */;
 			projectDirPath = "";
@@ -399,6 +433,7 @@
 				DEVELOPMENT_TEAM = JJW8L3Y5C3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Food4Thought/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,6 +463,7 @@
 				DEVELOPMENT_TEAM = JJW8L3Y5C3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Food4Thought/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -558,6 +594,36 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		53BF4DF0302AEC1400BBA166 /* XCLocalSwiftPackageReference "../Food4ThoughtCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Food4ThoughtCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		53799607302B8C8000E667FB /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.54.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		53799609302B8DC200E667FB /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 53799607302B8C8000E667FB /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		53BF4DF1302AEC1400BBA166 /* Food4ThoughtCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Food4ThoughtCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 53BF4DBB302AE9B600BBA166 /* Project object */;
 }

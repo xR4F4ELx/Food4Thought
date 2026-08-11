@@ -27,6 +27,7 @@ xcuserdata/
 .env.*
 !.env.example
 Secrets.xcconfig
+Secrets.swift
 *.p8
 *.p12
 *.mobileprovision
@@ -34,3 +35,4 @@ Secrets.xcconfig
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/
+
