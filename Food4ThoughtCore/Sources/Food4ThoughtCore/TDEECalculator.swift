@@ -39,14 +39,27 @@ public enum TDEECalculator {
         weightKg: Double,
         goal: GoalType
     ) -> MacroTargets {
-        let proteinGrams = goal.proteinGramsPerKilogram * weightKg
         let fatGrams = max(
             calorieTarget * fatShareOfCalories / caloriesPerGramFat,
             minimumFatGramsPerKilogram * weightKg
         )
+        let fatCalories = fatGrams * caloriesPerGramFat
+
+        // At very high body weight the calorie target is set by the BMR floor
+        // while protein and fat are set per-kilogram, so those two floors can
+        // together demand more than the target allows. Protein yields rather
+        // than fat: the fat floor is hormonal, whereas anyone in that range is
+        // already getting 400g+ of protein and loses nothing practical here.
+        // Without this the split silently overshoots its own calorie headline.
+        let proteinCalorieBudget = max(0, calorieTarget - fatCalories)
+        let proteinGrams = min(
+            goal.proteinGramsPerKilogram * weightKg,
+            proteinCalorieBudget / caloriesPerGramProtein
+        )
+
         let remainingCalories = calorieTarget
             - proteinGrams * caloriesPerGramProtein
-            - fatGrams * caloriesPerGramFat
+            - fatCalories
 
         return MacroTargets(
             proteinGrams: proteinGrams,

@@ -167,6 +167,26 @@ struct MacroTargetsTests {
         #expect(macros.carbsGrams == 0)
     }
 
+    @Test("macros never total more calories than the target, even when floors bind")
+    func macrosNeverExceedTarget() {
+        // A reachable worst case, unlike the 120 kg / 1500 kcal input above:
+        // 50yo male, 200 kg, 170 cm, sedentary on a cut.
+        //   BMR  2817.5, TDEE 3381, 20% cut → 2704.8, floored back up to BMR.
+        // At that target the protein floor (2.2 g/kg = 440 g, 1760 kcal) and the
+        // fat floor (0.6 g/kg = 120 g, 1080 kcal) already total 2840 kcal, so
+        // carbs clamp to zero and the split overshoots its own headline number.
+        let target = TDEECalculator.dailyCalorieTarget(
+            tdee: 3381, bmr: 2817.5, goal: .cut, sex: .male
+        )
+        let macros = TDEECalculator.macroTargets(calorieTarget: target, weightKg: 200, goal: .cut)
+
+        let total = macros.proteinGrams * 4 + macros.carbsGrams * 4 + macros.fatGrams * 9
+        #expect(
+            total <= target + tolerance,
+            "macros total \(total) kcal against a \(target) kcal target"
+        )
+    }
+
     @Test("macro calories reconcile to the calorie target when no floor binds")
     func macrosReconcileToTarget() {
         let target = 2797.75
