@@ -39,10 +39,25 @@ final class AppState {
         phase = await resolvedPhase(for: user)
     }
 
-    func completeOnboarding() {
+    /// Persists first, advances second. Taking the submission rather than
+    /// exposing a bare phase flip means no caller can land on the dashboard
+    /// without a stored goal set behind it.
+    func completeOnboarding(_ submission: OnboardingSubmission) async throws {
         guard case .onboarding(let user) = phase else { return }
+        try await profileRepository.completeOnboarding(submission)
         phase = .ready(user)
     }
+
+    #if DEBUG
+    /// Sends a completed user back through the questionnaire. Only flips the
+    /// phase once the flag is actually cleared, so a failed write can't leave
+    /// the UI claiming a reset that didn't happen.
+    func resetOnboarding() async throws {
+        guard case .ready(let user) = phase else { return }
+        try await profileRepository.resetOnboarding(userID: user.id)
+        phase = .onboarding(user)
+    }
+    #endif
 
     func signOut() async {
         // Clear local state regardless: a failed network sign-out must not

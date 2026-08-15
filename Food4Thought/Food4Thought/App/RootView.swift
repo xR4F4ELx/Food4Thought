@@ -14,8 +14,7 @@ struct RootView: View {
                 SignInView()
 
             case .onboarding:
-                // Placeholder until the questionnaire lands.
-                OnboardingPlaceholderView()
+                OnboardingFlowView()
 
             case .ready(let user):
                 MainPlaceholderView(user: user)
@@ -29,27 +28,11 @@ struct RootView: View {
 
 // MARK: - Temporary destinations
 
-private struct OnboardingPlaceholderView: View {
-    @Environment(AppState.self) private var appState
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Onboarding")
-                .font(.title2.bold())
-            Text("The goals questionnaire lands here next.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Sign Out") {
-                Task { await appState.signOut() }
-            }
-        }
-        .padding()
-    }
-}
 
 private struct MainPlaceholderView: View {
     let user: AuthenticatedUser
     @Environment(AppState.self) private var appState
+    @State private var resetError: String?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -61,6 +44,32 @@ private struct MainPlaceholderView: View {
             Button("Sign Out") {
                 Task { await appState.signOut() }
             }
+
+            #if DEBUG
+            Divider().padding(.vertical, 8)
+
+            Button("Reset Onboarding", role: .destructive) {
+                Task {
+                    do {
+                        resetError = nil
+                        try await appState.resetOnboarding()
+                    } catch {
+                        resetError = error.localizedDescription
+                    }
+                }
+            }
+            Text("Debug only — re-runs the questionnaire. Goal history is kept.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            if let resetError {
+                Text(resetError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+            #endif
         }
         .padding()
     }
