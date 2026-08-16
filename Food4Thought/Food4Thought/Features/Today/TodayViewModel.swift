@@ -20,9 +20,13 @@ struct MealSlotGroup: Identifiable, Equatable, Sendable {
         Int(entries.reduce(0) { $0 + $1.facts.calories }.rounded())
     }
 
-    /// "Oats, banana, coffee" — the subtitle in 1d.
+    /// The subtitle in 1d.
+    ///
+    /// Separated by a middot rather than a comma because USDA names carry their
+    /// own commas — "McDONALD'S, BIG BREAKFAST" comma-joined to a second food
+    /// reads as three items, not two.
     var summary: String {
-        entries.map(\.foodName).joined(separator: ", ")
+        entries.map(\.foodName).joined(separator: " · ")
     }
 }
 

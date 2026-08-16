@@ -31,8 +31,14 @@ struct LogFoodSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(Theme.Palette.inkSecondary)
+                    // "Cancel" stops meaning anything once something has been
+                    // written — there is nothing left to cancel, and offering
+                    // it suggests the entries would be taken back.
+                    let hasLogged = viewModel?.hasLogged ?? false
+
+                    Button(hasLogged ? "Done" : "Cancel") { dismiss() }
+                        .font(hasLogged ? .body.weight(.semibold) : .body)
+                        .foregroundStyle(hasLogged ? Theme.Palette.accent : Theme.Palette.inkSecondary)
                 }
                 ToolbarItem(placement: .principal) { slotPicker }
             }
@@ -84,6 +90,7 @@ struct LogFoodSheet: View {
                     )
                 }
             chips(viewModel)
+            tally(viewModel)
 
             if let notice = viewModel.searchNotice {
                 noteRow(notice, tint: Theme.Palette.inkSecondary)
@@ -129,9 +136,46 @@ struct LogFoodSheet: View {
                 onLog: { Task { await viewModel.confirmPendingPortion() } }
             )
         }
-        .onChange(of: viewModel.didLog) { _, didLog in
-            if didLog { dismiss() }
+    }
+
+    /// What has gone in so far this sitting.
+    ///
+    /// The sheet no longer closes on the first write, so this is what tells the
+    /// user the tap landed. Without it, logging a burger looks like nothing
+    /// happened and they log it twice.
+    @ViewBuilder
+    private func tally(_ viewModel: LogFoodViewModel) -> some View {
+        if viewModel.hasLogged {
+            HStack(spacing: 9) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Palette.fat)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(countLabel(viewModel.loggedItems.count)) added · \(viewModel.loggedKcal) kcal")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Theme.Palette.ink)
+
+                    // Middot, not comma: USDA names contain commas of their own.
+                    Text(viewModel.loggedItems.map(\.name).joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Theme.Palette.fat.opacity(0.10), in: .rect(cornerRadius: Theme.Radius.control))
+            .padding(.bottom, 10)
+            .accessibilityElement(children: .combine)
         }
+    }
+
+    private func countLabel(_ count: Int) -> String {
+        count == 1 ? "1 item" : "\(count) items"
     }
 
     private func searchField(_ viewModel: LogFoodViewModel) -> some View {

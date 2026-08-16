@@ -112,7 +112,9 @@ struct TodayViewModelTests {
         let breakfast = viewModel.slotGroups[0]
         #expect(breakfast.entries.count == 3)
         #expect(breakfast.totalKcal == 380)
-        #expect(breakfast.summary == "Oats, Banana, Coffee")
+        // Middot, not comma: a USDA name carries commas of its own, and
+        // comma-joining two of them reads as four foods.
+        #expect(breakfast.summary == "Oats · Banana · Coffee")
     }
 
     @Test("entries logged to a slot the user has since removed are still shown")

@@ -8,6 +8,13 @@ import Food4ThoughtCore
 /// default**. The sheet opens on recents with a slot already inferred, so the
 /// common case is tap-food, tap-log. Search, a different slot, and a different
 /// quantity are all available and none of them are on the way.
+/// One thing logged during this sitting, for the running tally on the sheet.
+struct LoggedSessionItem: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let name: String
+    let calories: Double
+}
+
 @Observable
 @MainActor
 final class LogFoodViewModel {
@@ -66,8 +73,20 @@ final class LogFoodViewModel {
     var isQuickAdding = false
     var isCreatingCustomFood = false
 
-    /// Set when an entry has been written, so the sheet can dismiss itself.
-    private(set) var didLog = false
+    /// What has gone in since the sheet opened.
+    ///
+    /// A meal is usually more than one thing — a burger and a drink are one
+    /// order — so the sheet stays up after a write and collects them. This is
+    /// what 2a's per-row **+** implies: a list you add from repeatedly, not one
+    /// that closes on first use. Dismissing after the first item would make the
+    /// second cost a reopen, a reload, and finding the food again.
+    private(set) var loggedItems: [LoggedSessionItem] = []
+
+    var hasLogged: Bool { !loggedItems.isEmpty }
+
+    var loggedKcal: Int {
+        Int(loggedItems.reduce(0) { $0 + $1.calories }.rounded())
+    }
 
     // MARK: - Dependencies
 
@@ -294,8 +313,13 @@ final class LogFoodViewModel {
                 ],
                 userID: userID
             )
+            // Only the quantity step closes. The list is left exactly as it
+            // was — same query, same results — so a second item off the same
+            // search is one tap away rather than a re-typed search.
+            loggedItems.append(
+                LoggedSessionItem(name: portion.food.name, calories: portion.facts.calories)
+            )
             pendingPortion = nil
-            didLog = true
         } catch {
             errorMessage = message(for: error)
         }
@@ -343,7 +367,16 @@ final class LogFoodViewModel {
                 },
                 userID: userID
             )
-            didLog = true
+            loggedItems.append(contentsOf: copyableEntries.map {
+                LoggedSessionItem(name: $0.item.name, calories: $0.facts.calories)
+            })
+
+            // The sheet used to close on a write, which is what stopped "Log
+            // all 3 items" being tapped twice. It stays open now, so the copy
+            // has to retire itself — and recents is where the just-copied meal
+            // now lives, if any of it needs adjusting.
+            copyableEntries = []
+            await select(path: .recents)
         } catch {
             errorMessage = message(for: error)
         }
@@ -375,8 +408,8 @@ final class LogFoodViewModel {
                 ],
                 userID: userID
             )
+            loggedItems.append(LoggedSessionItem(name: "Quick add", calories: calories))
             isQuickAdding = false
-            didLog = true
         } catch {
             errorMessage = message(for: error)
         }

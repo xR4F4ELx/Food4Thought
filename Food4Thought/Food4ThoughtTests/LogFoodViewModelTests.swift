@@ -11,7 +11,8 @@ private let riceID = UUID()
 private func storedItem(
     _ id: UUID = riceID,
     name: String = "Chicken rice bowl",
-    servingGrams: Double = 100
+    servingGrams: Double = 100,
+    calories: Double = 200
 ) -> FoodItem {
     FoodItem(
         id: .stored(id),
@@ -20,8 +21,15 @@ private func storedItem(
         name: name,
         brand: nil,
         serving: Serving(amount: servingGrams, unit: "g"),
-        facts: NutritionFacts(calories: 200, protein: 10, carbs: 30, fat: 5)
+        facts: NutritionFacts(calories: calories, protein: 10, carbs: 30, fat: 5)
     )
+}
+
+/// A distinct food each call. The default `storedItem` reuses one id, which is
+/// right for the single-food tests and wrong for anything logging two things —
+/// two suggestions sharing an identity are one row, not two.
+private func distinctItem(name: String, calories: Double) -> FoodItem {
+    storedItem(UUID(), name: name, calories: calories)
 }
 
 private func usdaItem(_ fdcID: String = "171077") -> FoodItem {
@@ -137,7 +145,7 @@ struct LogFoodViewModelTests {
         #expect(draft.mealKey == "lunch")
         #expect(abs(draft.quantity - 1.1) < 0.001)
         #expect(abs(draft.facts.calories - 220) < 0.001)
-        #expect(viewModel.didLog)
+        #expect(viewModel.hasLogged)
     }
 
     @Test("a USDA hit is cached into food_items before an entry can point at it")
@@ -273,7 +281,7 @@ struct LogFoodViewModelTests {
         await viewModel.quickAdd(calories: 0)
 
         #expect(await foods.logged.isEmpty)
-        #expect(viewModel.didLog == false)
+        #expect(viewModel.hasLogged == false)
     }
 
     @Test("a failed write keeps the sheet up and says why")
@@ -285,7 +293,7 @@ struct LogFoodViewModelTests {
         viewModel.pick(FoodSuggestion(item: storedItem(), origin: .catalogue, usualServings: 1))
         await viewModel.confirmPendingPortion()
 
-        #expect(viewModel.didLog == false)
+        #expect(viewModel.hasLogged == false)
         #expect(viewModel.pendingPortion != nil)
         #expect(viewModel.errorMessage == FoodRepositoryError.network.errorDescription)
         #expect(viewModel.isCommitting == false)
@@ -344,5 +352,121 @@ struct LogFoodViewModelTests {
         viewModel.select(slot: dinner)
 
         #expect(viewModel.selectedSlot?.key == "dinner")
+    }
+
+    // MARK: - Logging more than one thing in a sitting
+
+    @Test("logging a food leaves the sheet ready for the next one")
+    func loggingKeepsTheSessionOpen() async {
+        // A burger and a drink are one order. Dismissing after the first item
+        // makes the second cost a whole reopen — sheet, network load, and
+        // finding the food again.
+        let burger = distinctItem(name: "Burger", calories: 540)
+        let drink = distinctItem(name: "Cola", calories: 200)
+        let foods = FakeFoodRepository(recents: [
+            FoodSuggestion(item: burger, origin: .catalogue),
+            FoodSuggestion(item: drink, origin: .catalogue)
+        ])
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+
+        viewModel.pick(FoodSuggestion(item: burger, origin: .catalogue))
+        await viewModel.confirmPendingPortion()
+
+        // The quantity step is done with, the sitting is not.
+        #expect(viewModel.pendingPortion == nil)
+        #expect(viewModel.hasLogged)
+        #expect(viewModel.loggedItems.map(\.name) == ["Burger"])
+
+        viewModel.pick(FoodSuggestion(item: drink, origin: .catalogue))
+        await viewModel.confirmPendingPortion()
+
+        #expect(viewModel.loggedItems.map(\.name) == ["Burger", "Cola"])
+        #expect(viewModel.loggedKcal == 740)
+        #expect(await foods.logged.count == 2)
+    }
+
+    @Test("the list the user was looking at survives a log")
+    func loggingDoesNotResetTheList() async {
+        // Two items off the same search is the ordinary case. Clearing the
+        // query would send them back to recents and make them type it again.
+        let item = distinctItem(name: "Chicken rice", calories: 600)
+        let foods = FakeFoodRepository(catalogue: [FoodSuggestion(item: item, origin: .catalogue)])
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+
+        await viewModel.search("chicken")
+        let resultsBefore = viewModel.suggestions
+        #expect(resultsBefore.isEmpty == false)
+
+        viewModel.pick(FoodSuggestion(item: item, origin: .catalogue))
+        await viewModel.confirmPendingPortion()
+
+        // The search results are still standing, so the next item off the same
+        // query is one tap away rather than a re-typed search.
+        #expect(viewModel.suggestions == resultsBefore)
+        #expect(viewModel.pendingPortion == nil)
+        #expect(viewModel.hasLogged)
+        #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test("a failed log records nothing and leaves the quantity step up")
+    func failedLogRecordsNothing() async {
+        let item = distinctItem(name: "Burger", calories: 540)
+        let foods = FakeFoodRepository(
+            recents: [FoodSuggestion(item: item, origin: .catalogue)],
+            logFailure: FoodRepositoryError.network
+        )
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+
+        viewModel.pick(FoodSuggestion(item: item, origin: .catalogue))
+        await viewModel.confirmPendingPortion()
+
+        #expect(viewModel.loggedItems.isEmpty)
+        #expect(viewModel.hasLogged == false)
+        // Still up, so the user can retry without finding the food again.
+        #expect(viewModel.pendingPortion != nil)
+        #expect(viewModel.errorMessage != nil)
+    }
+
+    @Test("copying yesterday records every item it logged")
+    func copyYesterdayRecordsEachItem() async {
+        let entries = [
+            CopyableEntry(
+                id: UUID(),
+                item: distinctItem(name: "Burger", calories: 540),
+                quantity: 1,
+                facts: NutritionFacts(calories: 540, protein: 30, carbs: 40, fat: 26)
+            ),
+            CopyableEntry(
+                id: UUID(),
+                item: distinctItem(name: "Cola", calories: 200),
+                quantity: 1,
+                facts: NutritionFacts(calories: 200, protein: 0, carbs: 50, fat: 0)
+            )
+        ]
+        let foods = FakeFoodRepository(copyables: entries)
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+        await viewModel.select(path: .copyYesterday)
+
+        await viewModel.copyYesterday()
+
+        #expect(viewModel.loggedItems.map(\.name) == ["Burger", "Cola"])
+        #expect(viewModel.loggedKcal == 740)
+    }
+
+    @Test("a quick add joins the sitting like anything else")
+    func quickAddJoinsTheSession() async {
+        let viewModel = makeViewModel(foods: FakeFoodRepository())
+        await viewModel.load()
+
+        await viewModel.quickAdd(calories: 250)
+
+        #expect(viewModel.loggedKcal == 250)
+        #expect(viewModel.loggedItems.count == 1)
+        // The quick-add sheet closes; the log sheet does not.
+        #expect(viewModel.isQuickAdding == false)
     }
 }
