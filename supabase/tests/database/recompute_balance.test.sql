@@ -22,7 +22,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(35);
+select plan(47);
 
 
 -- ----------------------------------------------------------------- helpers --
@@ -134,6 +134,14 @@ select pg_temp.set_goal('66666666-6666-6666-6666-666666666666', 2000, pg_temp.lo
 select pg_temp.log_food('66666666-6666-6666-6666-666666666666', pg_temp.local_at(-3, '12:00'), 2600);
 select pg_temp.log_food('66666666-6666-6666-6666-666666666666', pg_temp.local_at(-2, '12:00'), 2600);
 
+-- U7 · fractional entries, which is most of them: two servings at 1250.30 and
+-- a workout at 300.60.
+select pg_temp.new_user('77777777-7777-7777-7777-777777777777');
+select pg_temp.set_goal('77777777-7777-7777-7777-777777777777', 2000, pg_temp.local_at(-30, '00:00'));
+select pg_temp.log_food('77777777-7777-7777-7777-777777777777', pg_temp.local_at(-2, '12:00'), 1250.30);
+select pg_temp.log_food('77777777-7777-7777-7777-777777777777', pg_temp.local_at(-2, '19:00'), 1250.30);
+select pg_temp.log_activity('77777777-7777-7777-7777-777777777777', pg_temp.local_at(-1, '18:00'), 300.60);
+
 -- U2 · timezone. UTC+14 year round, so no DST rule can rescue a UTC-bucketed
 -- implementation by accident.
 select pg_temp.new_user('22222222-2222-2222-2222-222222222222', 'Pacific/Kiritimati');
@@ -201,7 +209,7 @@ select is(pg_temp.closing(-6), -500,
 select is(
     (select overage_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-6)),
-    500.00::numeric,
+    500,
     'the day stores the overage it was scored on');
 
 select is(pg_temp.closing(-5), -500,
@@ -210,7 +218,7 @@ select is(pg_temp.closing(-5), -500,
 select is(
     (select overage_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-5)),
-    0.00::numeric,
+    0,
     'a deficit day records zero overage rather than a negative one');
 
 select is(pg_temp.closing(-4), -200,
@@ -225,7 +233,7 @@ select is(pg_temp.closing(-2), 500,
 select is(
     (select burned_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-2)),
-    560.00::numeric,
+    560,
     'the day still records the full burn, so the cap stays explainable');
 
 select is(pg_temp.closing(-1), 500,
@@ -255,6 +263,27 @@ select throws_ok(
     '42883',
     'function public.recompute_balance(date, integer) does not exist',
     'the credit cap is fixed by the function, not chosen by the caller');
+
+-- The same rule from the other side. A cap the function enforces is worth
+-- nothing if the caller can write the row itself: balance_days is reachable
+-- straight from PostgREST, so "burn past the cap is dropped" holds only while
+-- recompute_balance is the table's sole writer.
+select throws_ok(
+    $$ insert into public.balance_days
+           (user_id, day, daily_calorie_target, consumed_kcal, burned_kcal, closing_balance_kcal)
+       values (auth.uid(), current_date - 10, 2000, 0, 0, 100000) $$,
+    '42501',
+    'permission denied for table balance_days',
+    'a client cannot invent a balance day of its own');
+
+select throws_ok(
+    $$ update public.balance_days set closing_balance_kcal = 100000 where user_id = auth.uid() $$,
+    '42501',
+    'permission denied for table balance_days',
+    'nor rewrite a balance the rollup already scored');
+
+select is(pg_temp.closing(0), 200,
+    'so the stored balance survives a client that tries');
 
 
 -- --------------------------------------------------- U3 · debt has no floor --
@@ -347,8 +376,53 @@ select is(pg_temp.closing(-3), 0,
 select is(
     (select consumed_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-3)),
-    0.00::numeric,
+    0,
     'the rollup stays a cache of the entries, never a record of its own');
+
+
+-- ------------------------------------------------- U7 · whole kilocalories --
+
+-- The rollup is snapshotted so a past day stays explainable, which only works
+-- if the row's own figures reconcile. Mixed precision broke that: the entries
+-- summed to 2500.60, the day recorded 500.60 over, and the balance moved 501.
+select pg_temp.become('77777777-7777-7777-7777-777777777777');
+
+select col_type_is('public', 'balance_days', 'consumed_kcal', 'integer',
+    'consumed is stored in whole kilocalories');
+
+select col_type_is('public', 'balance_days', 'burned_kcal', 'integer',
+    'burned is stored in whole kilocalories');
+
+select col_type_is('public', 'balance_days', 'overage_kcal', 'integer',
+    'overage is stored in whole kilocalories');
+
+select lives_ok(
+    $$ select public.recompute_balance() $$,
+    'rebuilds from entries that do not land on whole kilocalories');
+
+select is(
+    (select consumed_kcal from public.balance_days
+      where user_id = auth.uid() and day = pg_temp.local_day(-2)),
+    2501,
+    'two servings at 1250.30 round to one figure, not two decimals');
+
+select is(
+    (select overage_kcal from public.balance_days
+      where user_id = auth.uid() and day = pg_temp.local_day(-2)),
+    501,
+    'and the overage is that figure less the target, exactly');
+
+select is(pg_temp.closing(-2), -501,
+    'so the balance moves by precisely the overage the row records');
+
+select is(
+    (select burned_kcal from public.balance_days
+      where user_id = auth.uid() and day = pg_temp.local_day(-1)),
+    301,
+    'a 300.60 kcal workout is recorded as the 301 it pays off');
+
+select is(pg_temp.closing(-1), -200,
+    'and the row arithmetic closes end to end: -501 owed, 301 paid, 200 left');
 
 
 -- ---------------------------------------------------------- U2 · timezone --
@@ -362,19 +436,19 @@ select lives_ok(
 select is(
     (select consumed_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-2, 'Pacific/Kiritimati')),
-    2500.00::numeric,
+    2500,
     'a 01:00 meal counts on the user''s day, not the UTC day it fell in');
 
 select is(
     (select consumed_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-3, 'Pacific/Kiritimati')),
-    0.00::numeric,
+    0,
     'and does not leak onto the previous day, where UTC bucketing would put it');
 
 select is(
     (select burned_kcal from public.balance_days
       where user_id = auth.uid() and day = pg_temp.local_day(-1, 'Pacific/Kiritimati')),
-    300.00::numeric,
+    300,
     'activity is bucketed by the same boundary as food');
 
 select is(pg_temp.closing(-1, 'Pacific/Kiritimati'), -200,
