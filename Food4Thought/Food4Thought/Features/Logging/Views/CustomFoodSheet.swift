@@ -8,13 +8,37 @@ import Food4ThoughtCore
 /// for the food this screen exists for, the honest answer to "how much
 /// protein" is often a shrug, and demanding one just stops the entry being
 /// made at all.
+/// Doubles as the edit screen for the Foods tab. The fields, the validation and
+/// the "only calories are required" rule are identical either way, so the only
+/// differences are the title and what the form starts out holding.
 struct CustomFoodSheet: View {
     let isSaving: Bool
     let onSave: (CustomFoodDraft) -> Void
 
+    var title = "New food"
+
+    /// Editing an existing food starts focused on nothing — the name is already
+    /// filled in, and stealing focus into it would put a keyboard over a form
+    /// the user came to read before changing one number.
+    var focusesNameOnAppear = true
+
     @Environment(\.dismiss) private var dismiss
-    @State private var draft = CustomFoodDraft()
+    @State private var draft: CustomFoodDraft
     @FocusState private var isNameFocused: Bool
+
+    init(
+        isSaving: Bool,
+        draft: CustomFoodDraft = CustomFoodDraft(),
+        title: String = "New food",
+        focusesNameOnAppear: Bool = true,
+        onSave: @escaping (CustomFoodDraft) -> Void
+    ) {
+        self.isSaving = isSaving
+        self.title = title
+        self.focusesNameOnAppear = focusesNameOnAppear
+        self.onSave = onSave
+        _draft = State(initialValue: draft)
+    }
 
     var body: some View {
         NavigationStack {
@@ -49,7 +73,7 @@ struct CustomFoodSheet: View {
                     Text("Only calories are required. Leave a macro blank and it counts as zero — a rough entry beats a skipped one.")
                 }
             }
-            .navigationTitle("New food")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -64,7 +88,7 @@ struct CustomFoodSheet: View {
                     }
                 }
             }
-            .onAppear { isNameFocused = true }
+            .onAppear { isNameFocused = focusesNameOnAppear }
         }
         .presentationDragIndicator(.visible)
     }
