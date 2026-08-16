@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Food4ThoughtCore
 
@@ -118,5 +119,57 @@ struct CustomFoodDraftTests {
         draft.name = "  Adobo  "
 
         #expect(try #require(draft.validated).name == "Adobo")
+    }
+
+    @Test("a saved food reopens as an editable draft that round-trips")
+    func reopensSavedFoodForEditing() throws {
+        // Arrange — what the Foods tab hands the edit sheet.
+        let saved = FoodItem(
+            id: .stored(UUID()),
+            source: .userCustom,
+            externalID: nil,
+            name: "Adobo",
+            brand: "Lola's",
+            serving: Serving(amount: 220, unit: "g"),
+            facts: NutritionFacts(calories: 310, protein: 24, carbs: 8, fat: 19)
+        )
+
+        // Act
+        let draft = CustomFoodDraft(food: saved)
+
+        // Assert — whole numbers keep their decimal point off, so a form the
+        // user only opened to read doesn't look pre-edited.
+        #expect(draft.name == "Adobo")
+        #expect(draft.brand == "Lola's")
+        #expect(draft.servingAmount == "220")
+        #expect(draft.servingUnit == "g")
+        #expect(draft.calories == "310")
+        #expect(draft.protein == "24")
+
+        let revalidated = try #require(draft.validated)
+        #expect(revalidated.name == saved.name)
+        #expect(revalidated.serving == saved.serving)
+        #expect(revalidated.facts == saved.facts)
+    }
+
+    @Test("a food with no brand reopens with an empty brand field, not the word nil")
+    func reopensWithoutBrand() {
+        let saved = FoodItem(
+            id: .stored(UUID()),
+            source: .userCustom,
+            externalID: nil,
+            name: "Rice",
+            brand: nil,
+            serving: Serving(amount: 150.5, unit: "g"),
+            facts: NutritionFacts(calories: 195.5, protein: 4, carbs: 43, fat: 0)
+        )
+
+        let draft = CustomFoodDraft(food: saved)
+
+        #expect(draft.brand.isEmpty)
+        // Fractional figures keep their decimal — rounding here would edit the
+        // user's food behind their back just for opening the screen.
+        #expect(draft.servingAmount == "150.5")
+        #expect(draft.calories == "195.5")
     }
 }

@@ -56,6 +56,25 @@ public struct CustomFoodDraft: Equatable, Sendable {
         self.fat = fat
     }
 
+    /// Reopens a saved food for editing.
+    ///
+    /// Figures are formatted the way they were typed rather than as raw
+    /// Doubles: "220" is what someone entered and what they expect to see, and
+    /// putting "220.0" in the field makes a form they only came to glance at
+    /// look like it has already been changed.
+    public init(food: FoodItem) {
+        self.init(
+            name: food.name,
+            brand: food.brand ?? "",
+            servingAmount: PortionFormatter.string(from: food.serving.amount),
+            servingUnit: food.serving.unit,
+            calories: PortionFormatter.string(from: food.facts.calories),
+            protein: PortionFormatter.string(from: food.facts.protein),
+            carbs: PortionFormatter.string(from: food.facts.carbs),
+            fat: PortionFormatter.string(from: food.facts.fat)
+        )
+    }
+
     /// The first thing wrong with the draft, or nil when it is ready to save.
     public var problem: CustomFoodProblem? {
         guard !trimmed(name).isEmpty else { return .missingName }
