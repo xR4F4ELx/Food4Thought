@@ -9,6 +9,10 @@ import Food4ThoughtCore
 struct LogFoodSheet: View {
     let userID: UUID
 
+    /// Nil when opened from the centre + button, where the slot is inferred
+    /// from the clock. Set when a Home meal row named one.
+    var initialSlotKey: String?
+
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: LogFoodViewModel?
     @State private var quickAddText = ""
@@ -37,7 +41,7 @@ struct LogFoodSheet: View {
         .presentationCornerRadius(Theme.Radius.sheet)
         .task {
             guard viewModel == nil else { return }
-            let model = LogFoodViewModel(userID: userID)
+            let model = LogFoodViewModel(userID: userID, initialSlotKey: initialSlotKey)
             await model.load()
             viewModel = model
         }

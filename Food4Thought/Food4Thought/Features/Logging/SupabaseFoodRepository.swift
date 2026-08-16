@@ -229,6 +229,75 @@ struct SupabaseFoodRepository: FoodRepository {
         try await run { try await balances.recompute(from: earliest) }
     }
 
+    func deleteEntry(id: UUID, loggedAt: Date, userID: UUID) async throws {
+        try await run {
+            try await client
+                .from("food_log_entries")
+                .delete()
+                .eq("id", value: id)
+                // Redundant against RLS, which already scopes the delete to the
+                // caller. Kept because a filter that is only enforced server
+                // side is one policy edit away from deleting someone else's row.
+                .eq("user_id", value: userID)
+                .execute()
+        }
+
+        try await run { try await balances.recompute(from: loggedAt) }
+    }
+
+    func customFoods(userID: UUID) async throws -> [FoodItem] {
+        let rows: [FoodItemRow] = try await run {
+            try await client
+                .from("food_items")
+                .select()
+                .eq("created_by", value: userID)
+                .eq("source", value: FoodSource.userCustom.rawValue)
+                .order("name", ascending: true)
+                .execute()
+                .value
+        }
+
+        // The quick-add row is plumbing, not a food. It exists because
+        // `food_log_entries.food_item_id` is not nullable, and listing it would
+        // invite someone to edit the 1 kcal serving every quick add scales from.
+        return rows
+            .filter { $0.name != Self.quickAddName }
+            .map(\.foodItem)
+    }
+
+    func updateCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem {
+        guard let id = item.storedID else {
+            throw FoodRepositoryError.unexpected("That food hasn't been saved yet.")
+        }
+
+        let updated: [FoodItemRow] = try await run {
+            try await client
+                .from("food_items")
+                .update(NewFoodItemRow(item: item, userID: userID))
+                .eq("id", value: id)
+                .eq("created_by", value: userID)
+                .select()
+                .execute()
+                .value
+        }
+
+        guard let row = updated.first else {
+            throw FoodRepositoryError.unexpected("The change couldn't be saved.")
+        }
+        return row.foodItem
+    }
+
+    func deleteCustomFood(id: UUID, userID: UUID) async throws {
+        try await run {
+            try await client
+                .from("food_items")
+                .delete()
+                .eq("id", value: id)
+                .eq("created_by", value: userID)
+                .execute()
+        }
+    }
+
     func favoriteIDs(userID: UUID) async throws -> Set<UUID> {
         let rows: [FavoriteIDRow] = try await run {
             try await client
@@ -344,6 +413,10 @@ struct SupabaseFoodRepository: FoodRepository {
     }
 
     /// One place to turn transport failures into something a sheet can show.
+    ///
+    /// Discardable because a write's `PostgrestResponse` carries nothing the
+    /// caller needs — the throw is the signal.
+    @discardableResult
     private func run<T>(_ operation: () async throws -> T) async throws -> T {
         do {
             return try await operation()
@@ -352,9 +425,16 @@ struct SupabaseFoodRepository: FoodRepository {
         } catch is URLError {
             throw FoodRepositoryError.network
         } catch let error as PostgrestError {
-            throw error.code == "28000"
-                ? FoodRepositoryError.notSignedIn
-                : FoodRepositoryError.unexpected(error.message)
+            switch error.code {
+            case "28000":
+                throw FoodRepositoryError.notSignedIn
+            // foreign_key_violation. The only one this client can provoke is
+            // deleting a food that logged entries still reference.
+            case "23503":
+                throw FoodRepositoryError.foodInUse
+            default:
+                throw FoodRepositoryError.unexpected(error.message)
+            }
         } catch {
             throw FoodRepositoryError.unexpected(error.localizedDescription)
         }

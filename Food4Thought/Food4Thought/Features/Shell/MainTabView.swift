@@ -10,15 +10,21 @@ struct MainTabView: View {
     @State private var selection: AppTab = .today
     @State private var isLoggingFood = false
 
+    /// Bumped when the centre + button logs something, to rebuild Today against
+    /// the entry that was just written. Home holds its own snapshot, and the
+    /// FAB writes to it from outside — without this the rings sit on the figures
+    /// they had before the meal was logged.
+    @State private var todayReloadToken = UUID()
+
     var body: some View {
         ZStack {
             Theme.Palette.paper.ignoresSafeArea()
 
             Group {
                 switch selection {
-                case .today: TodayView()
+                case .today: TodayView(userID: user.id).id(todayReloadToken)
                 case .trends: TrendsView()
-                case .foods: FoodsView()
+                case .foods: FoodsView(userID: user.id)
                 case .settings: SettingsView(user: user)
                 }
             }
@@ -31,6 +37,11 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $isLoggingFood) {
             LogFoodSheet(userID: user.id)
+                // Deliberately not switching to Today as well: the FAB is
+                // reachable from every tab, and yanking someone off Foods
+                // because they cancelled a sheet is a worse bug than a
+                // redundant fetch.
+                .onDisappear { todayReloadToken = UUID() }
         }
     }
 }

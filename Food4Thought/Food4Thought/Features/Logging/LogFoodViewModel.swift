@@ -72,6 +72,12 @@ final class LogFoodViewModel {
     // MARK: - Dependencies
 
     private let userID: UUID
+
+    /// Set when the sheet was opened from a specific meal — a Home meal row
+    /// names the slot, and inferring one from the clock would override the
+    /// thing the user just pointed at.
+    private let initialSlotKey: String?
+
     private let foods: FoodRepository
     private let profiles: ProfileRepository
     private let usda: USDAFoodSearching
@@ -83,6 +89,7 @@ final class LogFoodViewModel {
 
     init(
         userID: UUID,
+        initialSlotKey: String? = nil,
         foods: FoodRepository = SupabaseFoodRepository(),
         profiles: ProfileRepository = SupabaseProfileRepository(),
         usda: USDAFoodSearching = USDAFoodClient(),
@@ -91,6 +98,7 @@ final class LogFoodViewModel {
         now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.userID = userID
+        self.initialSlotKey = initialSlotKey
         self.foods = foods
         self.profiles = profiles
         self.usda = usda
@@ -108,7 +116,13 @@ final class LogFoodViewModel {
         do {
             let schedule = try await profiles.mealSchedule(userID: userID)
             slots = schedule.slots
-            selectedSlot = schedule.slot(at: currentTimeOfDay()) ?? schedule.slots.first
+            // A named slot wins over the clock. An unrecognised key falls back
+            // to inference rather than to nothing — a schedule the user edited
+            // between opening Home and tapping must not strand the sheet
+            // without a slot to log to.
+            selectedSlot = initialSlotKey.flatMap { key in schedule.slots.first { $0.key == key } }
+                ?? schedule.slot(at: currentTimeOfDay())
+                ?? schedule.slots.first
 
             async let favorites = foods.favoriteIDs(userID: userID)
             async let recents = foods.recents(userID: userID, withinDays: Self.recentsWindowDays)
