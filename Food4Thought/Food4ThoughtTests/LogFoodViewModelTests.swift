@@ -74,6 +74,19 @@ private actor FakeFoodRepository: FoodRepository {
         return item.storedID ?? newlyCachedID
     }
 
+    func createCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem {
+        cachedItems.append(item)
+        return FoodItem(
+            id: .stored(newlyCachedID),
+            source: item.source,
+            externalID: item.externalID,
+            name: item.name,
+            brand: item.brand,
+            serving: item.serving,
+            facts: item.facts
+        )
+    }
+
     func log(_ drafts: [FoodLogDraft], userID: UUID) async throws {
         if let logFailure { throw logFailure }
         logged.append(drafts)
@@ -244,6 +257,27 @@ struct LogFoodViewModelTests {
         #expect(viewModel.suggestions.first?.item.storedID == riceID)
     }
 
+    @Test("a USDA hit that only shares a word with the query is dropped, not shown")
+    func remoteFalseMatchIsFilteredOut() async {
+        // The real response: USDA answers "kaya toast" with Melba toast. Left
+        // in, it logs at 390 kcal/100g and looks entirely reasonable.
+        let melbaToast = FoodItem(
+            id: .external("6107"),
+            source: .usdaFDC,
+            externalID: "6107",
+            name: "Melba toast",
+            brand: nil,
+            serving: .per100g,
+            facts: NutritionFacts(calories: 390, protein: 12, carbs: 74, fat: 3)
+        )
+        let viewModel = makeViewModel(usda: StubUSDAClient(results: [melbaToast]))
+        await viewModel.load()
+
+        await viewModel.search("kaya toast")
+
+        #expect(viewModel.suggestions.isEmpty)
+    }
+
     @Test("an unreachable USDA degrades to local results with a note, not an error")
     func usdaFailureKeepsLocalResults() async {
         let local = FoodSuggestion(item: storedItem(), origin: .catalogue)
@@ -342,6 +376,37 @@ struct LogFoodViewModelTests {
 
         #expect(await foods.storedFavorites.contains(foods.newlyCachedID))
         #expect(viewModel.favoriteIDs.contains(foods.newlyCachedID))
+    }
+
+    @Test("a created food goes straight to the quantity step, already saved")
+    func customFoodFlowsIntoLogging() async {
+        // The user made this food in order to log it; sending them back to a
+        // list to find it again would waste the whole point of the screen.
+        let foods = FakeFoodRepository()
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+        viewModel.isCreatingCustomFood = true
+
+        await viewModel.createCustomFood(
+            CustomFoodDraft(name: "Mum's adobo", servingAmount: "250", servingUnit: "g", calories: "420")
+        )
+
+        #expect(viewModel.isCreatingCustomFood == false)
+        #expect(viewModel.pendingPortion?.food.name == "Mum's adobo")
+        // Saved with a real row id, so the entry can point at it.
+        #expect(viewModel.pendingPortion?.food.storedID == foods.newlyCachedID)
+    }
+
+    @Test("an incomplete custom food is never saved")
+    func incompleteCustomFoodIsNotSaved() async {
+        let foods = FakeFoodRepository()
+        let viewModel = makeViewModel(foods: foods)
+        await viewModel.load()
+
+        await viewModel.createCustomFood(CustomFoodDraft(name: "", calories: "420"))
+
+        #expect(await foods.cachedItems.isEmpty)
+        #expect(viewModel.pendingPortion == nil)
     }
 
     @Test("switching the slot reloads copy-yesterday, which is the one slot-dependent path")

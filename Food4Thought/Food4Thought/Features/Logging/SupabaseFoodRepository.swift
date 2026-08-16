@@ -197,6 +197,22 @@ struct SupabaseFoodRepository: FoodRepository {
         return id
     }
 
+    func createCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem {
+        let inserted: [FoodItemRow] = try await run {
+            try await client
+                .from("food_items")
+                .insert(NewFoodItemRow(item: item, userID: userID))
+                .select()
+                .execute()
+                .value
+        }
+
+        guard let row = inserted.first else {
+            throw FoodRepositoryError.unexpected("The food couldn't be saved.")
+        }
+        return row.foodItem
+    }
+
     func log(_ drafts: [FoodLogDraft], userID: UUID) async throws {
         guard !drafts.isEmpty else { return }
 

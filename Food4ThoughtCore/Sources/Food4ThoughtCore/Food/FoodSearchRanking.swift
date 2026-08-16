@@ -10,8 +10,40 @@ import Foundation
 /// `(source, external_id)`.
 public enum FoodSearchRanking {
 
-    public static func ranked(_ suggestions: [FoodSuggestion]) -> [FoodSuggestion] {
-        deduplicated(suggestions).sorted(by: isOrderedBefore)
+    /// Merges, deduplicates, and orders. When `query` is given, remote hits
+    /// must also survive `FoodQueryMatcher` — see `gated(_:matching:)` for why
+    /// only remote ones do.
+    public static func ranked(
+        _ suggestions: [FoodSuggestion],
+        matching query: String? = nil
+    ) -> [FoodSuggestion] {
+        deduplicated(gated(suggestions, matching: query)).sorted(by: isOrderedBefore)
+    }
+
+    /// Applies the match-quality gate to remote results only.
+    ///
+    /// The user's own foods are exempt on purpose. A favourite is an explicit
+    /// choice, and recents and catalogue hits come from a substring search the
+    /// query already satisfied — so there is no wrong-food risk to guard
+    /// against, and filtering them would hide something that is genuinely
+    /// theirs. The gate exists for databases guessing at dishes they do not
+    /// have, which is only ever the remote ones.
+    private static func gated(
+        _ suggestions: [FoodSuggestion],
+        matching query: String?
+    ) -> [FoodSuggestion] {
+        guard let query, !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return suggestions
+        }
+
+        return suggestions.filter { suggestion in
+            switch suggestion.origin {
+            case .usda:
+                FoodQueryMatcher.matches(suggestion.item, query: query)
+            case .favorite, .recent, .catalogue:
+                true
+            }
+        }
     }
 
     // MARK: - Deduplication

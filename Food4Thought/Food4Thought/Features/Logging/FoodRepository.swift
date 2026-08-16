@@ -64,6 +64,13 @@ protocol FoodRepository: Sendable {
     /// returns the id of the row that already caches it.
     func cacheIfNeeded(_ item: FoodItem, userID: UUID) async throws -> UUID
 
+    /// Saves a hand-entered food and returns it with its real row id.
+    ///
+    /// Separate from `cacheIfNeeded` because a custom food has no
+    /// `external_id` to upsert against — it is always a fresh row, and two
+    /// foods with the same name are two different foods.
+    func createCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem
+
     /// Inserts entries and rebuilds the balance rollup for the affected day.
     func log(_ drafts: [FoodLogDraft], userID: UUID) async throws
 

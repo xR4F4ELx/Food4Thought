@@ -64,6 +64,7 @@ final class LogFoodViewModel {
     /// Non-nil while the 2d quantity sheet is up.
     var pendingPortion: PortionStepper?
     var isQuickAdding = false
+    var isCreatingCustomFood = false
 
     /// Set when an entry has been written, so the sheet can dismiss itself.
     private(set) var didLog = false
@@ -218,7 +219,9 @@ final class LogFoodViewModel {
         }
 
         guard !Task.isCancelled else { return }
-        suggestions = FoodSearchRanking.ranked(found)
+        // Gating on the term drops remote hits that only share a word with it —
+        // a USDA search for "kaya toast" answers with Melba toast.
+        suggestions = FoodSearchRanking.ranked(found, matching: term)
     }
 
     // MARK: - Picking and logging
@@ -279,6 +282,27 @@ final class LogFoodViewModel {
             )
             pendingPortion = nil
             didLog = true
+        } catch {
+            errorMessage = message(for: error)
+        }
+    }
+
+    /// Saves a hand-entered food and goes straight to the quantity step.
+    ///
+    /// Straight through rather than back to a list the user would then have to
+    /// find it in: they created this food in order to log it, and the serving
+    /// they just typed is already the right default.
+    func createCustomFood(_ draft: CustomFoodDraft) async {
+        guard let item = draft.validated else { return }
+
+        isCommitting = true
+        errorMessage = nil
+        defer { isCommitting = false }
+
+        do {
+            let saved = try await foods.createCustomFood(item, userID: userID)
+            isCreatingCustomFood = false
+            pendingPortion = PortionStepper(food: saved, usualServings: 1)
         } catch {
             errorMessage = message(for: error)
         }

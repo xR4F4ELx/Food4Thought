@@ -72,6 +72,13 @@ struct LogFoodSheet: View {
     private func content(_ viewModel: LogFoodViewModel) -> some View {
         VStack(spacing: 0) {
             searchField(viewModel)
+                .sheet(isPresented: Binding(get: { viewModel.isQuickAdding }, set: { viewModel.isQuickAdding = $0 })) {
+                    QuickAddSheet(
+                        slotLabel: viewModel.selectedSlot?.label ?? "this meal",
+                        isLogging: viewModel.isCommitting,
+                        onLog: { calories in Task { await viewModel.quickAdd(calories: calories) } }
+                    )
+                }
             chips(viewModel)
 
             if let notice = viewModel.searchNotice {
@@ -82,9 +89,23 @@ struct LogFoodSheet: View {
             }
 
             list(viewModel)
+                // Each sheet hangs off a different view rather than stacking
+                // three modifiers on one: SwiftUI only reliably honours one
+                // .sheet per view, and the failure is a button that silently
+                // does nothing.
+                .sheet(isPresented: Binding(get: { viewModel.isCreatingCustomFood }, set: { viewModel.isCreatingCustomFood = $0 })) {
+                    CustomFoodSheet(isSaving: viewModel.isCommitting) { draft in
+                        Task { await viewModel.createCustomFood(draft) }
+                    }
+                }
 
-            Button("Quick add calories only") {
-                viewModel.isQuickAdding = true
+            HStack(spacing: 18) {
+                Button("Create a food") {
+                    viewModel.isCreatingCustomFood = true
+                }
+                Button("Quick add calories only") {
+                    viewModel.isQuickAdding = true
+                }
             }
             .font(.subheadline)
             .foregroundStyle(Theme.Palette.inkSecondary)
@@ -102,13 +123,6 @@ struct LogFoodSheet: View {
                 },
                 onToggleFavorite: { Task { await viewModel.toggleFavorite(portion.food) } },
                 onLog: { Task { await viewModel.confirmPendingPortion() } }
-            )
-        }
-        .sheet(isPresented: Binding(get: { viewModel.isQuickAdding }, set: { viewModel.isQuickAdding = $0 })) {
-            QuickAddSheet(
-                slotLabel: viewModel.selectedSlot?.label ?? "this meal",
-                isLogging: viewModel.isCommitting,
-                onLog: { calories in Task { await viewModel.quickAdd(calories: calories) } }
             )
         }
         .onChange(of: viewModel.didLog) { _, didLog in
@@ -263,11 +277,11 @@ struct LogFoodSheet: View {
 
     private func emptyMessage(_ viewModel: LogFoodViewModel) -> String {
         if !viewModel.query.isEmpty {
-            return "No foods matched. Quick add works if you just need the calories."
+            return "No foods matched “\(viewModel.query)”. Create it as a food, or quick add the calories."
         }
         return switch viewModel.path {
         case .favorites: "No favourites yet. Star a food while logging it."
-        default: "Nothing logged in the last week yet. Search, or quick add the calories."
+        default: "Nothing logged in the last week yet. Search, create a food, or quick add the calories."
         }
     }
 
