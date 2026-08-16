@@ -50,6 +50,7 @@ private actor StubProfileRepository: ProfileRepository {
     func completeOnboarding(_ submission: OnboardingSubmission) async throws {}
     func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult { .unchanged }
     func mealSchedule(userID: UUID) async throws -> MealSchedule { MealSchedule.Preset.threeMeals.schedule }
+    func updateMealSchedule(_ schedule: MealSchedule, userID: UUID) async throws {}
     #if DEBUG
     func resetOnboarding(userID: UUID) async throws {}
     #endif

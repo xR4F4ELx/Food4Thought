@@ -21,11 +21,13 @@ struct TodayView: View {
     private enum Route: Identifiable {
         case log(slotKey: String?)
         case detail(MealSlotGroup)
+        case addMeal
 
         var id: String {
             switch self {
             case .log(let slotKey): "log-\(slotKey ?? "auto")"
             case .detail(let group): "detail-\(group.key)"
+            case .addMeal: "add-meal"
             }
         }
     }
@@ -45,13 +47,24 @@ struct TodayView: View {
             await model.load()
             viewModel = model
         }
-        .sheet(item: $route) { route in
-            switch route {
+        .sheet(item: $route) { presented in
+            switch presented {
             case .log(let slotKey):
                 LogFoodSheet(userID: userID, initialSlotKey: slotKey)
                     .onDisappear { Task { await viewModel?.load() } }
             case .detail(let group):
                 detailSheet(for: group)
+            case .addMeal:
+                AddMealSheet(isSaving: viewModel?.isSavingSchedule ?? false) { label, time, lasts in
+                    Task {
+                        await viewModel?.addMeal(
+                            label: label,
+                            typicalTime: time,
+                            lastsBeyondToday: lasts
+                        )
+                        route = nil
+                    }
+                }
             }
         }
     }
@@ -368,10 +381,10 @@ struct TodayView: View {
                         onOpenDetail: { route = .detail(group) }
                     )
 
-                    if group.id != viewModel.slotGroups.last?.id {
-                        Divider().overlay(Theme.Palette.line)
-                    }
+                    Divider().overlay(Theme.Palette.line)
                 }
+
+                addMealRow
             }
             .padding(.bottom, 12)
         }
@@ -381,6 +394,35 @@ struct TodayView: View {
         // nothing.
         .refreshable { await viewModel.load() }
         .padding(.top, 4)
+    }
+
+    /// The escape hatch from the rhythm onboarding picked once.
+    ///
+    /// Sits at the end of the list rather than in Settings: the moment someone
+    /// wants a meal that isn't there is the moment they are looking at the list
+    /// and failing to find it.
+    private var addMealRow: some View {
+        Button {
+            route = .addMeal
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.inkSecondary)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.Palette.fillSubtle, in: .circle)
+
+                Text("Add a meal")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.Palette.inkSecondary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 8)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Adds a meal to your schedule, permanently or just for today")
     }
 
     /// 7a. One quiet line — no confetti, no lecture, and nothing that implies a
@@ -407,7 +449,9 @@ struct TodayView: View {
             MealDetailSheet(
                 group: current,
                 deletingEntryID: viewModel.deletingEntryID,
-                onDelete: { entry in Task { await viewModel.delete(entry) } }
+                canRemoveMeal: viewModel.canRemoveMeal,
+                onDelete: { entry in Task { await viewModel.delete(entry) } },
+                onRemoveMeal: { Task { await viewModel.removeMeal(key: current.key) } }
             )
         }
     }

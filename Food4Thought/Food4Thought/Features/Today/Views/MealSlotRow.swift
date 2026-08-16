@@ -27,20 +27,22 @@ struct MealSlotRow: View {
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint("Adds food to \(group.label)")
 
-            if group.isLogged {
-                Button(action: onOpenDetail) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.inkTertiary)
-                        // A full 44pt square. At 30 it sat inside the row
-                        // button's slop and the row swallowed the tap.
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("\(group.label) items")
-                .accessibilityHint("Shows what's logged, and lets you remove it")
+            // On every meal, not just logged ones: it is also the way to remove
+            // a meal, and an empty one is exactly what someone wants rid of.
+            Button(action: onOpenDetail) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.inkTertiary)
+                    // A full 44pt square. At 30 it sat inside the row button's
+                    // slop and the row swallowed the tap.
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("\(group.label) details")
+            .accessibilityHint(group.isLogged
+                ? "Shows what's logged, and lets you remove items or the meal"
+                : "Lets you remove this meal")
         }
         .padding(.vertical, 8)
     }
@@ -55,9 +57,22 @@ struct MealSlotRow: View {
 
     private var labels: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(group.label)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.Palette.ink)
+            HStack(spacing: 5) {
+                Text(group.label)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Palette.ink)
+
+                // Marks a meal that goes at midnight, so an empty row tomorrow
+                // is never a surprise.
+                if group.isImpromptu {
+                    Text("today")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.Palette.fill, in: .capsule)
+                }
+            }
 
             if group.isLogged {
                 Text(group.summary)

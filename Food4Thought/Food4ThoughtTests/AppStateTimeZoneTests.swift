@@ -48,6 +48,8 @@ private actor FakeProfileRepository: ProfileRepository {
         MealSchedule.Preset.threeMeals.schedule
     }
 
+    func updateMealSchedule(_ schedule: MealSchedule, userID: UUID) async throws {}
+
     #if DEBUG
     func resetOnboarding(userID: UUID) async throws {}
     #endif

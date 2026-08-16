@@ -23,6 +23,30 @@ private actor FakeTodayRepository: TodayReading {
     }
 }
 
+
+/// Records schedule writes and hands them back, so a test can assert on what
+/// would actually be stored in profiles.meal_schedule.
+private actor SpyProfileRepository: ProfileRepository {
+    private(set) var written: [MealSchedule] = []
+    private var failure: (any Error)?
+
+    init(failure: (any Error)? = nil) { self.failure = failure }
+
+    func hasCompletedOnboarding(userID: UUID) async throws -> Bool { true }
+    func completeOnboarding(_ submission: OnboardingSubmission) async throws {}
+    func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult { .unchanged }
+    func mealSchedule(userID: UUID) async throws -> MealSchedule { MealSchedule.Preset.threeMeals.schedule }
+
+    func updateMealSchedule(_ schedule: MealSchedule, userID: UUID) async throws {
+        if let failure { throw failure }
+        written.append(schedule)
+    }
+
+    #if DEBUG
+    func resetOnboarding(userID: UUID) async throws {}
+    #endif
+}
+
 private func entry(
     _ name: String,
     mealKey: String,
@@ -63,12 +87,30 @@ private func snapshot(
     )
 }
 
+/// 17 Aug 2026, mid-afternoon — the day the one-off meal expires on.
+private func addingDay() -> Date {
+    var components = DateComponents()
+    components.year = 2026
+    components.month = 8
+    components.day = 17
+    components.hour = 15
+    components.minute = 0
+    return Calendar.current.date(from: components)!
+}
+
 @MainActor
 private func makeViewModel(
     _ repository: FakeTodayRepository,
-    foods: FakeFoodRepository = FakeFoodRepository()
+    foods: FakeFoodRepository = FakeFoodRepository(),
+    profiles: SpyProfileRepository = SpyProfileRepository()
 ) -> TodayViewModel {
-    TodayViewModel(userID: todayUserID, today: repository, foods: foods)
+    TodayViewModel(
+        userID: todayUserID,
+        today: repository,
+        foods: foods,
+        profiles: profiles,
+        now: { addingDay() }
+    )
 }
 
 // MARK: - Tests
@@ -258,5 +300,141 @@ struct TodayViewModelTests {
         #expect(viewModel.slotGroups.contains { $0.entries.contains(doomed) })
         // Released rather than left spinning, so the row can be tried again.
         #expect(viewModel.deletingEntryID == nil)
+    }
+
+    // MARK: - Adding and removing meals
+
+    @Test("adding a meal writes it into the schedule with the shares rebalanced")
+    func addingAMealWritesIt() async throws {
+        let profiles = SpyProfileRepository()
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [])),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        await viewModel.addMeal(
+            label: "Supper",
+            typicalTime: TimeOfDay(hour: 21, minute: 30),
+            lastsBeyondToday: true
+        )
+
+        let written = try #require(await profiles.written.first)
+        let supper = try #require(written.slots.last)
+        #expect(supper.label == "Supper")
+        #expect(supper.key == "supper")
+        // Permanent, so no expiry at all.
+        #expect(supper.expiresOn == nil)
+        // The pace pill reads these; a schedule summing past 1 misreports all day.
+        #expect(abs(written.slots.reduce(0) { $0 + $1.expectedShare } - 1.0) < 0.0001)
+    }
+
+    @Test("a just-for-today meal is stamped with today's date")
+    func impromptuMealExpiresToday() async throws {
+        let profiles = SpyProfileRepository()
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [])),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        await viewModel.addMeal(
+            label: "Birthday cake",
+            typicalTime: TimeOfDay(hour: 15, minute: 0),
+            lastsBeyondToday: false
+        )
+
+        let written = try #require(await profiles.written.first)
+        #expect(written.slots.last?.expiresOn == "2026-08-17")
+    }
+
+    @Test("a blank name is not written")
+    func blankMealNameIsRefused() async {
+        let profiles = SpyProfileRepository()
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [])),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        await viewModel.addMeal(
+            label: "   ",
+            typicalTime: TimeOfDay(hour: 21, minute: 0),
+            lastsBeyondToday: true
+        )
+
+        #expect(await profiles.written.isEmpty)
+    }
+
+    @Test("removing a meal writes the schedule without it")
+    func removingAMealWritesIt() async throws {
+        let profiles = SpyProfileRepository()
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [])),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        await viewModel.removeMeal(key: "snack")
+
+        let written = try #require(await profiles.written.first)
+        #expect(written.slots.map(\.key) == ["breakfast", "lunch", "dinner"])
+        #expect(abs(written.slots.reduce(0) { $0 + $1.expectedShare } - 1.0) < 0.0001)
+    }
+
+    @Test("the last meal cannot be removed")
+    func lastMealIsProtected() async {
+        // An empty schedule has nothing to log against, so this would lock the
+        // user out of the one thing the app is for.
+        let single = MealSchedule(slots: [
+            MealSlot(key: "meal", label: "Meal", typicalTime: TimeOfDay(hour: 18, minute: 0), expectedShare: 1)
+        ])
+        let profiles = SpyProfileRepository()
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [], schedule: single)),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        #expect(viewModel.canRemoveMeal == false)
+        await viewModel.removeMeal(key: "meal")
+        #expect(await profiles.written.isEmpty)
+    }
+
+    @Test("a removed meal's entries survive as Other rather than disappearing")
+    func removedMealKeepsItsEntries() async throws {
+        // The rings still count them, so a meal list that dropped them would no
+        // longer add up to its own total.
+        let repository = FakeTodayRepository(snapshot(
+            entries: [entry("Cake", mealKey: "birthday_cake", kcal: 400, at: 15)],
+            schedule: MealSchedule.Preset.threeMeals.schedule
+        ))
+        let viewModel = makeViewModel(repository)
+        await viewModel.load()
+
+        let other = try #require(viewModel.slotGroups.last)
+        #expect(other.key == TodayViewModel.orphanedSlotKey)
+        #expect(other.totalKcal == 400)
+        #expect(viewModel.progress?.consumedKcal == 400)
+    }
+
+    @Test("a failed schedule write is reported and changes nothing")
+    func failedScheduleWriteIsReported() async {
+        let profiles = SpyProfileRepository(failure: OnboardingFailure.network)
+        let viewModel = makeViewModel(
+            FakeTodayRepository(snapshot(entries: [])),
+            profiles: profiles
+        )
+        await viewModel.load()
+
+        await viewModel.addMeal(
+            label: "Supper",
+            typicalTime: TimeOfDay(hour: 21, minute: 0),
+            lastsBeyondToday: true
+        )
+
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.isSavingSchedule == false)
+        #expect(viewModel.slotGroups.contains { $0.label == "Supper" } == false)
     }
 }

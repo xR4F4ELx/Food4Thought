@@ -29,9 +29,19 @@ protocol ProfileRepository: Sendable {
     /// every launch, and travel is precisely when it changes.
     func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult
 
-    /// The user's meal slots. Every log has to land in one of them, and the
-    /// centre + button infers which without asking.
+    /// The user's meal slots **as they stand today**. Every log has to land in
+    /// one of them, and the centre + button infers which without asking.
+    ///
+    /// One-day meals are filtered out here rather than at each call site: a
+    /// caller that forgot would keep offering yesterday's birthday cake, and
+    /// the shares would no longer sum to 1 so the pace pill would drift too.
     func mealSchedule(userID: UUID) async throws -> MealSchedule
+
+    /// Replaces the stored schedule. Used by adding and removing a meal.
+    ///
+    /// Takes the whole schedule rather than a delta because the shares are
+    /// normalised across all slots — changing one changes every other.
+    func updateMealSchedule(_ schedule: MealSchedule, userID: UUID) async throws
 
     #if DEBUG
     /// Development-only: clears the routing flag so the questionnaire can be
@@ -204,7 +214,31 @@ struct SupabaseProfileRepository: ProfileRepository {
             // state logging cannot invent its way out of.
             throw OnboardingFailure.unexpected("Your meal times are missing. Re-run onboarding from Settings.")
         }
-        return schedule
+        return schedule.active(on: ISODay.string(from: .now, in: calendar))
+    }
+
+    func updateMealSchedule(_ schedule: MealSchedule, userID: UUID) async throws {
+        struct MealScheduleUpdate: Encodable {
+            let mealSchedule: MealSchedule
+
+            enum CodingKeys: String, CodingKey {
+                case mealSchedule = "meal_schedule"
+            }
+        }
+
+        guard !schedule.slots.isEmpty else {
+            throw OnboardingFailure.rejected(reason: "A schedule needs at least one meal.")
+        }
+
+        do {
+            try await client
+                .from("profiles")
+                .update(MealScheduleUpdate(mealSchedule: schedule.normalised()))
+                .eq("id", value: userID)
+                .execute()
+        } catch {
+            throw mapped(error)
+        }
     }
 
     #if DEBUG

@@ -12,6 +12,9 @@ struct MealSlotGroup: Identifiable, Equatable, Sendable {
     /// under a meal key the user has since removed from their schedule.
     let isOrphaned: Bool
 
+    /// A one-day meal, which goes on its own at midnight.
+    let isImpromptu: Bool
+
     var id: String { key }
 
     var isLogged: Bool { !entries.isEmpty }
@@ -53,11 +56,15 @@ final class TodayViewModel {
     /// Set while a delete is in flight, so the row can't be tapped twice.
     private(set) var deletingEntryID: UUID?
 
+    /// Set while a schedule change is being written.
+    private(set) var isSavingSchedule = false
+
     // MARK: - Dependencies
 
     private let userID: UUID
     private let today: TodayReading
     private let foods: FoodRepository
+    private let profiles: ProfileRepository
     private let calendar: Calendar
     private let now: @Sendable () -> Date
 
@@ -65,12 +72,14 @@ final class TodayViewModel {
         userID: UUID,
         today: TodayReading = SupabaseTodayRepository(),
         foods: FoodRepository = SupabaseFoodRepository(),
+        profiles: ProfileRepository = SupabaseProfileRepository(),
         calendar: Calendar = .current,
         now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.userID = userID
         self.today = today
         self.foods = foods
+        self.profiles = profiles
         self.calendar = calendar
         self.now = now
     }
@@ -140,7 +149,8 @@ final class TodayViewModel {
                 key: slot.key,
                 label: slot.label,
                 entries: byKey[slot.key] ?? [],
-                isOrphaned: false
+                isOrphaned: false,
+                isImpromptu: slot.expiresOn != nil
             )
         }
 
@@ -152,7 +162,8 @@ final class TodayViewModel {
                 key: Self.orphanedSlotKey,
                 label: "Other",
                 entries: orphaned,
-                isOrphaned: true
+                isOrphaned: true,
+                isImpromptu: false
             )
         ]
     }
@@ -170,6 +181,55 @@ final class TodayViewModel {
 
         do {
             try await foods.deleteEntry(id: entry.id, loggedAt: entry.loggedAt, userID: userID)
+            await load()
+        } catch {
+            errorMessage = message(for: error)
+        }
+    }
+
+    // MARK: - Editing the schedule
+
+    /// Can a meal be removed, or is this the last one standing.
+    var canRemoveMeal: Bool {
+        snapshot?.schedule.canRemoveSlot ?? false
+    }
+
+    /// Adds a meal to the schedule.
+    ///
+    /// `lastsBeyondToday: false` gives it an expiry of today, which is the
+    /// impromptu case — a birthday cake, a work lunch. It behaves exactly like
+    /// any other meal until midnight and then stops appearing, rather than
+    /// leaving a permanent empty row on Home.
+    func addMeal(label: String, typicalTime: TimeOfDay, lastsBeyondToday: Bool) async {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let schedule = snapshot?.schedule else { return }
+
+        await write(
+            schedule.addingSlot(
+                label: trimmed,
+                typicalTime: typicalTime,
+                expiresOn: lastsBeyondToday ? nil : ISODay.string(from: now(), in: calendar)
+            )
+        )
+    }
+
+    /// Removes a meal.
+    ///
+    /// Entries already logged to it keep their `meal_key` — history is never
+    /// rewritten — so they reappear under "Other" rather than vanishing from a
+    /// day whose rings still count them.
+    func removeMeal(key: String) async {
+        guard let schedule = snapshot?.schedule, schedule.canRemoveSlot else { return }
+        await write(schedule.removingSlot(key: key))
+    }
+
+    private func write(_ schedule: MealSchedule) async {
+        isSavingSchedule = true
+        errorMessage = nil
+        defer { isSavingSchedule = false }
+
+        do {
+            try await profiles.updateMealSchedule(schedule, userID: userID)
             await load()
         } catch {
             errorMessage = message(for: error)
