@@ -58,10 +58,12 @@ extension Theme {
 extension Theme {
     /// Space Grotesk for numerals, system for everything else.
     ///
-    /// Every helper falls back to a rounded system face when the font isn't
-    /// bundled, so the app stays legible before the asset lands and if it ever
-    /// fails to load. All sizes are `relativeTo:` a text style so Dynamic Type
-    /// keeps working — a custom font otherwise freezes at a fixed size.
+    /// Bundled under the OFL — see `Resources/Fonts/README.md` for the licence,
+    /// provenance, and why the semibold rung resolves to Medium. Every helper
+    /// falls back to a rounded system face if a lookup fails, so a misnamed or
+    /// missing file degrades to something legible rather than to Times New
+    /// Roman. All sizes are `relativeTo:` a text style so Dynamic Type keeps
+    /// working — a custom font otherwise freezes at a fixed size.
     enum Typography {
         private static let displayFamily = "SpaceGrotesk"
 
@@ -87,11 +89,14 @@ extension Theme {
             return .custom(name, size: size, relativeTo: style)
         }
 
+        /// Space Grotesk publishes no 600, so semibold resolves to Medium. The
+        /// design's 700/600 split exists to keep hero figures heavier than
+        /// inline ones; Medium preserves that hierarchy where rounding both
+        /// rungs up to Bold would flatten it.
         private static func postScriptName(for weight: Font.Weight) -> String? {
             switch weight {
-            case .bold: "\(displayFamily)-Bold"
-            case .semibold: "\(displayFamily)-SemiBold"
-            case .medium: "\(displayFamily)-Medium"
+            case .bold, .heavy, .black: "\(displayFamily)-Bold"
+            case .semibold, .medium: "\(displayFamily)-Medium"
             default: "\(displayFamily)-Regular"
             }
         }
