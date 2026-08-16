@@ -2,6 +2,15 @@ import Foundation
 import Food4ThoughtCore
 import Supabase
 
+/// Whether a timezone sync actually moved the stored value.
+///
+/// The distinction matters to the caller: a moved zone moves every day boundary
+/// the balance rollup was built on, so the rollup has to be rebuilt.
+enum TimeZoneSyncResult: Equatable, Sendable {
+    case unchanged
+    case updated
+}
+
 protocol ProfileRepository: Sendable {
     /// Drives routing: a signed-in user without this set goes to onboarding.
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool
@@ -10,6 +19,19 @@ protocol ProfileRepository: Sendable {
     /// the failure mode worth avoiding here — a profile without a goal set
     /// routes past onboarding to a dashboard that has no targets to show.
     func completeOnboarding(_ submission: OnboardingSubmission) async throws
+
+    /// Stores the device's IANA timezone, e.g. "Europe/Lisbon".
+    ///
+    /// `profiles.time_zone` defaults to UTC, and every day boundary in the
+    /// balance rollup is cut in that zone. Left unwritten, a user five hours off
+    /// UTC has their evening meals scored against the following day — which
+    /// reads as a balance bug, not a timezone one. Cheap enough to reconcile on
+    /// every launch, and travel is precisely when it changes.
+    func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult
+
+    /// The user's meal slots. Every log has to land in one of them, and the
+    /// centre + button infers which without asking.
+    func mealSchedule(userID: UUID) async throws -> MealSchedule
 
     #if DEBUG
     /// Development-only: clears the routing flag so the questionnaire can be
@@ -93,7 +115,7 @@ struct SupabaseProfileRepository: ProfileRepository {
         let plan = submission.plan
 
         let params = CompleteOnboardingParams(
-            birthDate: isoDay(from: inputs.birthDate),
+            birthDate: ISODay.string(from: inputs.birthDate, in: calendar),
             biologicalSex: inputs.sex.rawValue,
             heightCm: inputs.heightCm,
             weightKg: inputs.weightKg,
@@ -117,6 +139,72 @@ struct SupabaseProfileRepository: ProfileRepository {
         } catch {
             throw mapped(error)
         }
+    }
+
+    func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult {
+        struct TimeZoneRow: Decodable {
+            let timeZone: String
+
+            enum CodingKeys: String, CodingKey {
+                case timeZone = "time_zone"
+            }
+        }
+
+        struct TimeZoneUpdate: Encodable {
+            let timeZone: String
+
+            enum CodingKeys: String, CodingKey {
+                case timeZone = "time_zone"
+            }
+        }
+
+        let rows: [TimeZoneRow] = try await client
+            .from("profiles")
+            .select("time_zone")
+            .eq("id", value: userID)
+            .limit(1)
+            .execute()
+            .value
+
+        // No row means handle_new_user() has not run yet; there is nothing to
+        // write to, and claiming an update would trigger a pointless rollup
+        // rebuild. The next launch retries.
+        guard let stored = rows.first?.timeZone else { return .unchanged }
+        guard stored != identifier else { return .unchanged }
+
+        try await client
+            .from("profiles")
+            .update(TimeZoneUpdate(timeZone: identifier))
+            .eq("id", value: userID)
+            .execute()
+
+        return .updated
+    }
+
+    func mealSchedule(userID: UUID) async throws -> MealSchedule {
+        struct MealScheduleRow: Decodable {
+            let mealSchedule: MealSchedule
+
+            enum CodingKeys: String, CodingKey {
+                case mealSchedule = "meal_schedule"
+            }
+        }
+
+        let rows: [MealScheduleRow] = try await client
+            .from("profiles")
+            .select("meal_schedule")
+            .eq("id", value: userID)
+            .limit(1)
+            .execute()
+            .value
+
+        guard let schedule = rows.first?.mealSchedule, !schedule.slots.isEmpty else {
+            // complete_onboarding rejects an empty schedule, so an onboarded
+            // user always has one. Reaching here means the profile is in a
+            // state logging cannot invent its way out of.
+            throw OnboardingFailure.unexpected("Your meal times are missing. Re-run onboarding from Settings.")
+        }
+        return schedule
     }
 
     #if DEBUG
@@ -143,14 +231,6 @@ struct SupabaseProfileRepository: ProfileRepository {
     #endif
 
     // MARK: - Helpers
-
-    /// Formats as a bare yyyy-MM-dd for the `date` column. Sending a full
-    /// timestamp would let a timezone conversion shift the day backwards and
-    /// quietly change the user's age.
-    private func isoDay(from date: Date) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-    }
 
     /// The RPC signals refusal through SQLSTATE codes rather than messages, so
     /// unlike AuthService this can match on something stable.

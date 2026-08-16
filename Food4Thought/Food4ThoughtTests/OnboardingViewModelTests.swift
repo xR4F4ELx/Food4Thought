@@ -30,6 +30,16 @@ private actor SpyProfileRepository: ProfileRepository {
         submissions.append(submission)
     }
 
+    /// Covered on its own in AppStateTimeZoneTests; inert here so a sync can
+    /// never be what makes an onboarding assertion pass or fail.
+    func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult {
+        .unchanged
+    }
+
+    func mealSchedule(userID: UUID) async throws -> MealSchedule {
+        MealSchedule.Preset.threeMeals.schedule
+    }
+
     #if DEBUG
     func resetOnboarding(userID: UUID) async throws {}
     #endif
