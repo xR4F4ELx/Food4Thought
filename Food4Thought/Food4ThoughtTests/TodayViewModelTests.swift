@@ -71,6 +71,7 @@ private func snapshot(
     target: Int = 2000,
     balance: Int = 0,
     todayOverage: Int = 0,
+    todayBurned: Int = 0,
     averageOverage: Int? = nil,
     schedule: MealSchedule = MealSchedule.Preset.threeMeals.schedule
 ) -> TodaySnapshot {
@@ -83,6 +84,7 @@ private func snapshot(
         entries: entries,
         balanceKcal: balance,
         todayOverageKcal: todayOverage,
+        todayBurnedKcal: todayBurned,
         averageDailyOverageKcal: averageOverage
     )
 }

@@ -131,6 +131,9 @@ final class TodayViewModel {
         )
     }
 
+    /// What exercise has cleared today, for the debt banner's arithmetic.
+    var burnedTodayKcal: Int { snapshot?.todayBurnedKcal ?? 0 }
+
     /// True on a day nothing has been logged to yet — 7a's rings-at-rest.
     var isFirstRunOfDay: Bool {
         snapshot.map { $0.entries.isEmpty } ?? false

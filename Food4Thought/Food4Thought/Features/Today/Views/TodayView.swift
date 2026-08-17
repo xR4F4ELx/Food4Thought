@@ -22,6 +22,9 @@ struct TodayView: View {
     /// owns it. `onDismiss` is the point where it is free again.
     @State private var queuedRoute: Route?
 
+    /// Drives the push to Activity — the screen the balance affordance names.
+    @State private var isShowingActivity = false
+
     /// A single route rather than several `.sheet` modifiers stacked on one
     /// view — SwiftUI only reliably honours one, and the failure mode is a
     /// button that silently does nothing.
@@ -40,14 +43,25 @@ struct TodayView: View {
     }
 
     var body: some View {
-        Group {
-            if let viewModel {
-                content(viewModel)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A stack purely so the balance affordance can push Activity. The bar
+        // is hidden because this screen draws its own "Today" header — a second
+        // title above it would be the same word twice.
+        NavigationStack {
+            Group {
+                if let viewModel {
+                    content(viewModel)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(Theme.Palette.paper)
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $isShowingActivity) {
+                ActivityView(userID: userID) {
+                    Task { await viewModel?.load() }
+                }
             }
         }
-        .background(Theme.Palette.paper)
         .task {
             guard viewModel == nil else { return }
             let model = TodayViewModel(userID: userID)
@@ -252,10 +266,21 @@ struct TodayView: View {
         .accessibilityValue(balance.accessibilityDescription)
     }
 
-    private func debtExplanation(_ balance: BalanceSummary) -> String {
-        let today = balance.todayOverageKcal > 0
-            ? "\(formatted(balance.todayOverageKcal)) of that came from today. "
-            : ""
+    private func debtExplanation(_ balance: BalanceSummary, burnedToday: Int) -> String {
+        // Both halves or neither. "152 of that came from today" above a debt of
+        // 81 is two true figures that read as broken arithmetic — the 71 the
+        // walk cleared is the term that reconciles them.
+        let today: String
+        switch (balance.todayOverageKcal > 0, burnedToday > 0) {
+        case (true, true):
+            today = "\(formatted(balance.todayOverageKcal)) from today's food, \(formatted(burnedToday)) cleared by exercise. "
+        case (true, false):
+            today = "\(formatted(balance.todayOverageKcal)) of that came from today. "
+        case (false, true):
+            today = "Exercise cleared \(formatted(burnedToday)) today. "
+        case (false, false):
+            today = ""
+        }
 
         let clearing = balance.isFocusPartial
             ? "Clear the focus figure and the rest waits — movement clears it, and it never adds to today's food."
@@ -307,26 +332,55 @@ struct TodayView: View {
 
     // MARK: - Balance callout
 
-    /// 1e's debt banner and 10a's credit note.
+    /// 1e's debt banner, 10a's credit note, and the affordance both carry.
     ///
-    /// Neither pushes anywhere yet: Activity (3a/3b) is not built, and a "▸"
-    /// that goes nowhere is worse than no affordance at all. The figures are
-    /// the point and they are all here.
+    /// All three states push to Activity now that it exists — that is where the
+    /// balance becomes something a person can act on rather than a number they
+    /// are told.
     @ViewBuilder
     private func balanceCallout(_ viewModel: TodayViewModel) -> some View {
         if let balance = viewModel.balance {
-            switch balance.state {
-            case .debt:
-                debtBanner(balance)
-            case .credit:
-                creditNote(balance)
-            case .square:
-                EmptyView()
+            Button {
+                isShowingActivity = true
+            } label: {
+                switch balance.state {
+                case .debt: debtBanner(balance, burnedToday: viewModel.burnedTodayKcal)
+                case .credit: creditNote(balance)
+                case .square: squareRow
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens your balance, where you can log exercise")
         }
     }
 
-    private func debtBanner(_ balance: BalanceSummary) -> some View {
+    /// Square is the quiet state, so it gets one line rather than a banner —
+    /// but it still needs a way in, or logging a workout would be unreachable
+    /// on exactly the days somebody is on top of things.
+    private var squareRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bolt")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.Palette.inkTertiary)
+
+            Text("Nothing owed. Log exercise to build credit.")
+                .font(.footnote)
+                .foregroundStyle(Theme.Palette.inkSecondary)
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.inkTertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(Theme.Palette.fillSubtle, in: .rect(cornerRadius: Theme.Radius.card))
+        .padding(.top, 14)
+        .contentShape(.rect)
+    }
+
+    private func debtBanner(_ balance: BalanceSummary, burnedToday: Int) -> some View {
         HStack(spacing: 11) {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 16))
@@ -342,18 +396,26 @@ struct TodayView: View {
                 // Today's own contribution lives here rather than on the ring
                 // caption, which has 64pt and a more important job: saying what
                 // the figure is at all.
-                Text(debtExplanation(balance))
+                Text(debtExplanation(balance, burnedToday: burnedToday))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
+
+            Text("Log")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.white.opacity(0.18), in: .rect(cornerRadius: 10))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Theme.Palette.debt, in: .rect(cornerRadius: Theme.Radius.card))
         .padding(.top, 14)
+        .contentShape(.rect)
         .accessibilityElement(children: .combine)
     }
 
@@ -369,6 +431,10 @@ struct TodayView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.credit)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -378,6 +444,7 @@ struct TodayView: View {
                 .stroke(Theme.Palette.credit.opacity(0.25), lineWidth: 1)
         }
         .padding(.top, 14)
+        .contentShape(.rect)
         .accessibilityElement(children: .combine)
     }
 

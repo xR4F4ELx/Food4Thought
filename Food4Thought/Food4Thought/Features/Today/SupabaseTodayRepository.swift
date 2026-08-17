@@ -50,11 +50,13 @@ struct SupabaseTodayRepository: TodayReading {
         let day: String
         let closingBalanceKcal: Int
         let overageKcal: Int
+        let burnedKcal: Double
 
         enum CodingKeys: String, CodingKey {
             case day
             case closingBalanceKcal = "closing_balance_kcal"
             case overageKcal = "overage_kcal"
+            case burnedKcal = "burned_kcal"
         }
     }
 
@@ -105,6 +107,7 @@ struct SupabaseTodayRepository: TodayReading {
             // data for, so a quiet day is a gap, not a reset to zero.
             balanceKcal: todayRow?.closingBalanceKcal ?? days.last?.closingBalanceKcal ?? 0,
             todayOverageKcal: todayRow?.overageKcal ?? 0,
+            todayBurnedKcal: Int((todayRow?.burnedKcal ?? 0).rounded()),
             averageDailyOverageKcal: Self.averageOverage(in: days, excluding: today)
         )
     }
@@ -175,7 +178,7 @@ struct SupabaseTodayRepository: TodayReading {
         try await run {
             try await client
                 .from("balance_days")
-                .select("day, closing_balance_kcal, overage_kcal")
+                .select("day, closing_balance_kcal, overage_kcal, burned_kcal")
                 .eq("user_id", value: userID)
                 .gte("day", value: ISODay.string(from: start, in: calendar))
                 .order("day", ascending: true)

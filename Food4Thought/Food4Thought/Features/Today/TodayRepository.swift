@@ -36,8 +36,13 @@ struct TodaySnapshot: Equatable, Sendable {
     /// `recompute_balance` is its only correct author.
     let balanceKcal: Int
 
-    /// What today has added to the debt so far, for 1e's "Debt +275".
+    /// What today's *food* put on the debt, before any exercise. This is the
+    /// raw overage, so it can exceed the balance once a workout has cleared
+    /// part of it — the two only read as consistent when shown together.
     let todayOverageKcal: Int
+
+    /// What today's exercise has taken off, for the same reason.
+    let todayBurnedKcal: Int
 
     /// The user's typical over-day, from their own recent history. Nil when
     /// they have none on record — the focus figure refuses to invent one.
