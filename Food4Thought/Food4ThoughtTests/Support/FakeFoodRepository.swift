@@ -16,8 +16,10 @@ actor FakeFoodRepository: FoodRepository {
     private(set) var deletedEntryIDs: [UUID] = []
     private(set) var deletedFoodIDs: [UUID] = []
     private(set) var updatedFoods: [FoodItem] = []
+    private(set) var createdFoods: [FoodItem] = []
     var storedCustomFoods: [FoodItem] = []
     private var logFailure: (any Error)?
+    private var updateFailure: (any Error)?
     private var deleteFailure: (any Error)?
     private var deleteFoodFailure: (any Error)?
 
@@ -31,6 +33,7 @@ actor FakeFoodRepository: FoodRepository {
         copyables: [CopyableEntry] = [],
         customFoods: [FoodItem] = [],
         logFailure: (any Error)? = nil,
+        updateFailure: (any Error)? = nil,
         deleteFailure: (any Error)? = nil,
         deleteFoodFailure: (any Error)? = nil
     ) {
@@ -40,6 +43,7 @@ actor FakeFoodRepository: FoodRepository {
         self.copyables = copyables
         self.storedCustomFoods = customFoods
         self.logFailure = logFailure
+        self.updateFailure = updateFailure
         self.deleteFailure = deleteFailure
         self.deleteFoodFailure = deleteFoodFailure
     }
@@ -56,7 +60,9 @@ actor FakeFoodRepository: FoodRepository {
 
     func createCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem {
         cachedItems.append(item)
-        return FoodItem(
+        createdFoods.append(item)
+
+        let saved = FoodItem(
             id: .stored(newlyCachedID),
             source: item.source,
             externalID: item.externalID,
@@ -65,6 +71,10 @@ actor FakeFoodRepository: FoodRepository {
             serving: item.serving,
             facts: item.facts
         )
+        // Lands in the library too, so a reload after creating sees it — the
+        // Foods tab reads this list back and would otherwise look unchanged.
+        storedCustomFoods.append(saved)
+        return saved
     }
 
     func log(_ drafts: [FoodLogDraft], userID: UUID) async throws {
@@ -80,6 +90,7 @@ actor FakeFoodRepository: FoodRepository {
     func customFoods(userID: UUID) async throws -> [FoodItem] { storedCustomFoods }
 
     func updateCustomFood(_ item: FoodItem, userID: UUID) async throws -> FoodItem {
+        if let updateFailure { throw updateFailure }
         updatedFoods.append(item)
         storedCustomFoods = storedCustomFoods.map { $0.id == item.id ? item : $0 }
         return item

@@ -172,4 +172,50 @@ struct CustomFoodDraftTests {
         #expect(draft.servingAmount == "150.5")
         #expect(draft.calories == "195.5")
     }
+
+    @Test("a blank serving means one serving, not one gram")
+    func blankServingIsOneServing() throws {
+        // The unit field defaults to "g", so falling back to 1 quoted a home
+        // recipe at 310 kcal *per gram* — and the quantity step then opens in
+        // grams and offers 3,100 kcal as its starting portion. The form says
+        // only calories are required, so this path has to stay honest.
+        var draft = CustomFoodDraft()
+        draft.name = "Lola's adobo"
+        draft.calories = "310"
+
+        let food = try #require(draft.validated)
+        #expect(food.serving.amount == 1)
+        #expect(food.serving.unit == "serving")
+        #expect(food.serving.isMass == false)
+
+        // And the portion step opens on one serving, not ten grams.
+        let portion = PortionStepper(food: food, usualServings: nil)
+        #expect(portion.displayValue == "1")
+        #expect(portion.facts.calories == 310)
+    }
+
+    @Test("an entered serving is used as typed")
+    func enteredServingIsHonoured() throws {
+        var draft = CustomFoodDraft()
+        draft.name = "Lola's adobo"
+        draft.calories = "310"
+        draft.servingAmount = "220"
+
+        let food = try #require(draft.validated)
+        #expect(food.serving.amount == 220)
+        #expect(food.serving.unit == "g")
+        #expect(food.serving.isMass)
+    }
+
+    @Test("an amount with no unit is a serving, not a bare number")
+    func amountWithoutUnitFallsBackToServings() throws {
+        var draft = CustomFoodDraft(servingUnit: "")
+        draft.name = "Adobo"
+        draft.calories = "310"
+        draft.servingAmount = "2"
+
+        let food = try #require(draft.validated)
+        #expect(food.serving.amount == 2)
+        #expect(food.serving.unit == "serving")
+    }
 }

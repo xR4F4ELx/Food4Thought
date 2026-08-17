@@ -90,9 +90,8 @@ public struct CustomFoodDraft: Equatable, Sendable {
     public var validated: FoodItem? {
         guard problem == nil else { return nil }
 
-        let amount = number(servingAmount) ?? 1
-        let unit = trimmed(servingUnit)
         let brand = trimmed(brand)
+        let serving = resolvedServing
 
         return FoodItem(
             // No row exists yet; the repository swaps this for a real id on save.
@@ -101,7 +100,7 @@ public struct CustomFoodDraft: Equatable, Sendable {
             externalID: nil,
             name: trimmed(name),
             brand: brand.isEmpty ? nil : brand,
-            serving: Serving(amount: amount, unit: unit.isEmpty ? "serving" : unit),
+            serving: serving,
             facts: NutritionFacts(
                 calories: number(calories) ?? 0,
                 protein: number(protein) ?? 0,
@@ -109,6 +108,23 @@ public struct CustomFoodDraft: Equatable, Sendable {
                 fat: number(fat) ?? 0
             )
         )
+    }
+
+    /// The portion the entered figures are quoted against.
+    ///
+    /// A blank amount means one serving of the thing, not one *gram* of it.
+    /// The unit field defaults to "g", so falling back to `1` with that unit
+    /// quoted a home recipe at 310 kcal per gram — and the quantity step would
+    /// then open in grams and offer 3,100 kcal as a starting portion. The form
+    /// says only calories are required, so leaving the serving blank has to
+    /// produce something honest rather than something off by a hundredfold.
+    private var resolvedServing: Serving {
+        let unit = trimmed(servingUnit)
+
+        guard let amount = number(servingAmount) else {
+            return Serving(amount: 1, unit: "serving")
+        }
+        return Serving(amount: amount, unit: unit.isEmpty ? "serving" : unit)
     }
 
     // MARK: - Helpers

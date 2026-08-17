@@ -83,7 +83,7 @@ struct FoodsViewModelTests {
         draft.calories = "310"
         draft.name = "Chicken adobo"
 
-        await viewModel.save(draft, to: original)
+        let saved = await viewModel.save(draft, to: original)
 
         let updated = try #require(await foods.updatedFoods.first)
         #expect(updated.storedID == id)
@@ -91,7 +91,81 @@ struct FoodsViewModelTests {
         #expect(updated.facts.calories == 310)
         #expect(updated.source == .userCustom)
         // The sheet closes only once the write has landed.
-        #expect(viewModel.editing == nil)
+        #expect(saved)
+    }
+
+    @Test("a failed save keeps the sheet up rather than losing what was typed")
+    func failedSaveDoesNotCloseTheSheet() async {
+        let original = customFood("Adobo")
+        let foods = FakeFoodRepository(
+            customFoods: [original],
+            updateFailure: FoodRepositoryError.network
+        )
+        let viewModel = FoodsViewModel(userID: foodsUserID, foods: foods)
+        await viewModel.load()
+
+        var draft = CustomFoodDraft(food: original)
+        draft.calories = "310"
+
+        #expect(await viewModel.save(draft, to: original) == false)
+        #expect(viewModel.errorMessage != nil)
+    }
+
+    // MARK: - Creating from the library
+
+    @Test("a food can be created without logging it")
+    func createAddsToTheLibrary() async throws {
+        // Creating mid-log goes straight to the quantity step, because that
+        // user is holding the food. Someone stocking their library is not, and
+        // should not have to fake a meal to record a recipe.
+        let foods = FakeFoodRepository()
+        let viewModel = FoodsViewModel(userID: foodsUserID, foods: foods)
+        await viewModel.load()
+
+        var draft = CustomFoodDraft()
+        draft.name = "Adobo"
+        draft.calories = "310"
+        draft.servingAmount = "220"
+
+        #expect(await viewModel.create(draft))
+
+        let created = try #require(await foods.createdFoods.first)
+        #expect(created.name == "Adobo")
+        #expect(created.source == .userCustom)
+        #expect(created.facts.calories == 310)
+        // Nothing was logged — the library grew, the day did not.
+        #expect(await foods.logged.isEmpty)
+    }
+
+    @Test("creating switches to the shelf the new food landed on")
+    func createShowsTheShelfItLandedOn() async {
+        // Saving from the Favourites shelf and being shown an unchanged list
+        // reads as the save having failed.
+        let foods = FakeFoodRepository()
+        let viewModel = FoodsViewModel(userID: foodsUserID, foods: foods)
+        await viewModel.load()
+        viewModel.shelf = .favorites
+
+        var draft = CustomFoodDraft()
+        draft.name = "Adobo"
+        draft.calories = "310"
+
+        _ = await viewModel.create(draft)
+
+        #expect(viewModel.shelf == .myFoods)
+    }
+
+    @Test("an invalid draft is not created")
+    func invalidDraftIsNotCreated() async {
+        let foods = FakeFoodRepository()
+        let viewModel = FoodsViewModel(userID: foodsUserID, foods: foods)
+
+        var draft = CustomFoodDraft()
+        draft.name = "Adobo"
+        draft.calories = "not a number"
+
+        #expect(await viewModel.create(draft) == false)
+        #expect(await foods.createdFoods.isEmpty)
     }
 
     @Test("an invalid draft is not written")

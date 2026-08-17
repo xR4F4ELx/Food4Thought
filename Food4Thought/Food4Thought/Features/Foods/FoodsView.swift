@@ -11,6 +11,22 @@ struct FoodsView: View {
     let userID: UUID
 
     @State private var viewModel: FoodsViewModel?
+    @State private var route: Route?
+
+    /// Creating and editing share one presentation slot. Two `.sheet`
+    /// modifiers on a single view is the bug that silently does nothing —
+    /// SwiftUI only reliably honours one.
+    private enum Route: Identifiable {
+        case create
+        case edit(FoodItem)
+
+        var id: String {
+            switch self {
+            case .create: "create"
+            case .edit(let food): "edit-\(food.id)"
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,6 +39,17 @@ struct FoodsView: View {
             }
             .background(Theme.Palette.paper)
             .navigationTitle("Foods")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        route = .create
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Create a food")
+                    .accessibilityHint("Adds a food to your library without logging it")
+                }
+            }
         }
         .task {
             guard viewModel == nil else { return }
@@ -59,17 +86,27 @@ struct FoodsView: View {
 
             list(viewModel)
         }
-        .sheet(item: Binding(
-            get: { viewModel.editing },
-            set: { viewModel.editing = $0 }
-        )) { food in
-            CustomFoodSheet(
-                isSaving: viewModel.isSaving,
-                draft: CustomFoodDraft(food: food),
-                title: "Edit food",
-                focusesNameOnAppear: false,
-                onSave: { draft in Task { await viewModel.save(draft, to: food) } }
-            )
+        .sheet(item: $route) { presented in
+            switch presented {
+            case .create:
+                CustomFoodSheet(isSaving: viewModel.isSaving) { draft in
+                    Task {
+                        if await viewModel.create(draft) { route = nil }
+                    }
+                }
+            case .edit(let food):
+                CustomFoodSheet(
+                    isSaving: viewModel.isSaving,
+                    draft: CustomFoodDraft(food: food),
+                    title: "Edit food",
+                    focusesNameOnAppear: false,
+                    onSave: { draft in
+                        Task {
+                            if await viewModel.save(draft, to: food) { route = nil }
+                        }
+                    }
+                )
+            }
         }
         .alert(
             "Still in use",
@@ -81,7 +118,10 @@ struct FoodsView: View {
         ) { food in
             Button("Edit instead") {
                 viewModel.blockedDeletion = nil
-                viewModel.editing = food
+                // A turn later: the alert still owns the presentation slot as
+                // its button action runs, and a sheet assigned here never
+                // appears.
+                DispatchQueue.main.async { route = .edit(food) }
             }
             Button("OK", role: .cancel) { viewModel.blockedDeletion = nil }
         } message: { _ in
@@ -114,13 +154,13 @@ struct FoodsView: View {
                                 }
 
                                 Button {
-                                    viewModel.editing = food
+                                    route = .edit(food)
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
                                 .tint(Theme.Palette.inkSecondary)
                             }
-                            .onTapGesture { viewModel.editing = food }
+                            .onTapGesture { route = .edit(food) }
                     }
 
                 case .favorites:
