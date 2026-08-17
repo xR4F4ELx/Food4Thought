@@ -80,12 +80,33 @@ public struct BalanceSummary: Equatable, Sendable {
 
     // MARK: - Display
 
-    /// "Debt" only when there is debt; 10a shows credit under the neutral
-    /// "Balance", because a positive number does not need a noun that implies
-    /// it should be spent.
+    /// Names which side of zero the figure is on.
+    ///
+    /// "Balance" alone said nothing — it is the label on a ring whose whole
+    /// point is the sign, and a bare number beside a neutral noun leaves the
+    /// user to guess whether it is good news.
+    ///
+    /// Deliberately *not* "surplus". In everyday nutrition language a calorie
+    /// surplus is eating more than you burn, which is this model's **debt** —
+    /// so using it for a positive balance would state the exact opposite of
+    /// what happened. Debt and credit are the terms the rest of the copy
+    /// already uses, and neither can be read backwards.
     public var ringLabel: String {
-        guard state == .debt else { return "Balance" }
-        return todayOverageKcal > 0 ? "Debt +\(todayOverageKcal)" : "Debt"
+        switch state {
+        case .debt: "Cal debt"
+        case .credit: "Cal credit"
+        case .square: "Cal balance"
+        }
+    }
+
+    /// Spelled out for VoiceOver, where there is no ring and no colour to carry
+    /// the meaning and "cal" is read aloud as a word.
+    public var accessibilityDescription: String {
+        switch state {
+        case .debt: "\(owedKcal) calories owed"
+        case .credit: "\(creditKcal) calories in credit"
+        case .square: "Level — nothing owed, nothing banked"
+        }
     }
 
     /// Carries the sign, using a proper minus rather than a hyphen: "480" alone

@@ -130,7 +130,11 @@ struct TodayView: View {
             HStack(spacing: 14) {
                 calorieRing(progress, isFirstRun: viewModel.isFirstRunOfDay)
 
-                Grid(horizontalSpacing: 4, verticalSpacing: 6) {
+                // The grid's columns size to their content, so this spacing is
+                // the *only* gap between rings. At 4 the strokes — which paint
+                // half a line width outside the 64pt frame — ran into each
+                // other and the four read as one blob.
+                Grid(horizontalSpacing: 18, verticalSpacing: 14) {
                     GridRow {
                         macroRing(progress, .protein, tint: Theme.Palette.protein)
                         macroRing(progress, .carbs, tint: Theme.Palette.carbs)
@@ -229,8 +233,20 @@ struct TodayView: View {
                 .minimumScaleFactor(0.8)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Balance")
-        .accessibilityValue(balanceAccessibilityValue(balance))
+        .accessibilityLabel("Calorie balance")
+        .accessibilityValue(balance.accessibilityDescription)
+    }
+
+    private func debtExplanation(_ balance: BalanceSummary) -> String {
+        let today = balance.todayOverageKcal > 0
+            ? "\(formatted(balance.todayOverageKcal)) of that came from today. "
+            : ""
+
+        let clearing = balance.isFocusPartial
+            ? "Clear the focus figure and the rest waits — movement clears it, and it never adds to today's food."
+            : "Movement clears it. It never adds to today's food target."
+
+        return today + clearing
     }
 
     private func balanceTint(_ balance: BalanceSummary) -> Color {
@@ -238,14 +254,6 @@ struct TodayView: View {
         case .debt: Theme.Palette.debt
         case .credit: Theme.Palette.credit
         case .square: Theme.Palette.inkSecondary
-        }
-    }
-
-    private func balanceAccessibilityValue(_ balance: BalanceSummary) -> String {
-        switch balance.state {
-        case .debt: "\(balance.owedKcal) kilocalories owed"
-        case .credit: "\(balance.creditKcal) kilocalories in credit"
-        case .square: "square"
         }
     }
 
@@ -316,9 +324,10 @@ struct TodayView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
 
-                Text(balance.isFocusPartial
-                     ? "Clear the focus figure and the rest waits. Movement clears it — it never adds to today's food."
-                     : "Movement clears it. It never adds to today's food target.")
+                // Today's own contribution lives here rather than on the ring
+                // caption, which has 64pt and a more important job: saying what
+                // the figure is at all.
+                Text(debtExplanation(balance))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)

@@ -222,7 +222,8 @@ struct TodayViewModelTests {
         #expect(balance.state == .debt)
         #expect(balance.owedKcal == 755)
         #expect(balance.focusToClearKcal == 480)
-        #expect(balance.ringLabel == "Debt +275")
+        #expect(balance.ringLabel == "Cal debt")
+        #expect(balance.todayOverageKcal == 275)
     }
 
     @Test("a day with nothing logged is the first-run state")

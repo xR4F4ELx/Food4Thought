@@ -104,11 +104,30 @@ struct BalanceSummaryTests {
 
     // MARK: - Display
 
-    @Test("the ring label switches with the state")
+    @Test("the ring label names which side of zero the figure is on")
     func ringLabel() {
-        #expect(BalanceSummary(kcal: -480).ringLabel == "Debt")
-        #expect(BalanceSummary(kcal: 320).ringLabel == "Balance")
-        #expect(BalanceSummary(kcal: 0).ringLabel == "Balance")
+        // "Balance" alone was the label on a ring whose whole point is the
+        // sign, leaving the user to guess whether the number was good news.
+        #expect(BalanceSummary(kcal: -480).ringLabel == "Cal debt")
+        #expect(BalanceSummary(kcal: 320).ringLabel == "Cal credit")
+        #expect(BalanceSummary(kcal: 0).ringLabel == "Cal balance")
+    }
+
+    @Test("a positive balance is never called a surplus")
+    func creditIsNotCalledSurplus() {
+        // In everyday nutrition language a calorie surplus is eating more than
+        // you burn — this model's debt. Using it for credit would tell the user
+        // the exact opposite of what happened.
+        let credit = BalanceSummary(kcal: 320)
+        #expect(credit.ringLabel.lowercased().contains("surplus") == false)
+        #expect(credit.accessibilityDescription.lowercased().contains("surplus") == false)
+    }
+
+    @Test("VoiceOver gets whole words, not the ring's abbreviation")
+    func accessibilityDescriptionIsSpokenPlainly() {
+        #expect(BalanceSummary(kcal: -480).accessibilityDescription == "480 calories owed")
+        #expect(BalanceSummary(kcal: 320).accessibilityDescription == "320 calories in credit")
+        #expect(BalanceSummary(kcal: 0).accessibilityDescription.contains("Level"))
     }
 
     @Test("the ring value carries its sign")
@@ -119,15 +138,17 @@ struct BalanceSummaryTests {
         #expect(BalanceSummary(kcal: 0).ringValue == "0")
     }
 
-    @Test("today's addition to the debt is labelled when there is one")
-    func todaysAdditionIsLabelled() {
-        // 1e's balance ring reads "Debt +275" — the day's own contribution,
-        // separate from the running total.
+    @Test("today's addition is carried for the banner, not crammed onto the ring")
+    func todaysAdditionIsAvailableSeparately() {
+        // 1e wanted the day's own contribution on the ring as "Debt +275", but
+        // the ring caption has 64pt to say what the figure *is* — which matters
+        // more than what today added. The banner below has room and context.
         let summary = BalanceSummary(kcal: -755, todayOverageKcal: 275)
-        #expect(summary.ringLabel == "Debt +275")
+        #expect(summary.ringLabel == "Cal debt")
+        #expect(summary.todayOverageKcal == 275)
 
         let quiet = BalanceSummary(kcal: -755, todayOverageKcal: 0)
-        #expect(quiet.ringLabel == "Debt")
+        #expect(quiet.todayOverageKcal == 0)
     }
 
     @Test("the ring is scaled to the credit cap in both directions")
