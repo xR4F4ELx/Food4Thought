@@ -15,6 +15,13 @@ struct TodayView: View {
     @State private var viewModel: TodayViewModel?
     @State private var route: Route?
 
+    /// A sheet queued to open as soon as the current one has finished closing.
+    ///
+    /// Assigning `route` while a sheet is dismissing drops the new one on the
+    /// floor — there is a single presentation slot and the outgoing sheet still
+    /// owns it. `onDismiss` is the point where it is free again.
+    @State private var queuedRoute: Route?
+
     /// A single route rather than several `.sheet` modifiers stacked on one
     /// view — SwiftUI only reliably honours one, and the failure mode is a
     /// button that silently does nothing.
@@ -47,7 +54,15 @@ struct TodayView: View {
             await model.load()
             viewModel = model
         }
-        .sheet(item: $route) { presented in
+        .sheet(item: $route, onDismiss: {
+            guard let next = queuedRoute else { return }
+            queuedRoute = nil
+            // One runloop turn later, not inside `onDismiss` itself. The
+            // callback fires while the outgoing sheet is still tearing down and
+            // still holds the single presentation slot, so assigning here is
+            // swallowed and the next sheet silently never appears.
+            DispatchQueue.main.async { route = next }
+        }) { presented in
             switch presented {
             case .log(let slotKey):
                 LogFoodSheet(userID: userID, initialSlotKey: slotKey)
@@ -460,6 +475,7 @@ struct TodayView: View {
                 deletingEntryID: viewModel.deletingEntryID,
                 canRemoveMeal: viewModel.canRemoveMeal,
                 onDelete: { entry in Task { await viewModel.delete(entry) } },
+                onAddFood: { queuedRoute = .log(slotKey: current.key) },
                 onRemoveMeal: { Task { await viewModel.removeMeal(key: current.key) } }
             )
         }

@@ -16,6 +16,7 @@ struct MealDetailSheet: View {
     /// nothing to log against and would lock the user out.
     let canRemoveMeal: Bool
     let onDelete: (LoggedEntry) -> Void
+    let onAddFood: () -> Void
     let onRemoveMeal: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -25,6 +26,7 @@ struct MealDetailSheet: View {
         NavigationStack {
             List {
                 entries
+                addFood
                 removal
             }
             .listStyle(.insetGrouped)
@@ -70,18 +72,42 @@ struct MealDetailSheet: View {
                     }
                 }
             } footer: {
-                // Adding is deliberately not offered here — the meal row behind
-                // this sheet already does it in one tap, and a second entry
-                // point would mean swapping one sheet for another mid-dismissal.
                 Text("Swipe a row to remove it. Your balance updates with it.")
                     .font(.footnote)
             }
         } else {
             Section {
-                Text("Nothing logged yet. Tap the row behind this sheet to add something.")
+                Text("Nothing logged yet.")
                     .font(.footnote)
                     .foregroundStyle(Theme.Palette.inkSecondary)
                     .listRowBackground(Theme.Palette.surface)
+            }
+        }
+    }
+
+    /// Keep going without leaving the meal.
+    ///
+    /// A meal is rarely one thing, and having reviewed what's in it, the next
+    /// thing anyone wants is to add what's missing. Sending them back out to
+    /// find the row again is a tax on the exact moment they noticed.
+    ///
+    /// Not offered for the orphaned "Other" group: it stands for meal keys that
+    /// are no longer on the schedule, so there is nothing to add *to*.
+    @ViewBuilder
+    private var addFood: some View {
+        if !group.isOrphaned {
+            Section {
+                Button(action: {
+                    // The caller queues this and presents it once the dismissal
+                    // has finished — one `.sheet` cannot hand over to another
+                    // mid-animation.
+                    onAddFood()
+                    dismiss()
+                }) {
+                    Label("Add food to \(group.label)", systemImage: "plus")
+                        .foregroundStyle(Theme.Palette.accent)
+                }
+                .listRowBackground(Theme.Palette.surface)
             }
         }
     }
