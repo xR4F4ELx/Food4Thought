@@ -16,7 +16,7 @@ struct MainTabBar: View {
             tab(.today)
             tab(.trends)
             logButton
-            tab(.foods)
+            tab(.activity)
             tab(.settings)
         }
         .padding(.horizontal, 14)

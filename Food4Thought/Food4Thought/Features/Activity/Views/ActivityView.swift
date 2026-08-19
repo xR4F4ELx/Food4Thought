@@ -3,10 +3,12 @@ import Food4ThoughtCore
 
 /// Activity & balance — handoff 3a, and 10b when the balance is in credit.
 ///
-/// Not a tab, by design: it is a push from the Home balance affordance, because
-/// it is only worth opening when the balance has something to say. Its job is
-/// to make the figure actionable — what is owed, what has been burned against
-/// it today, and a way to record more.
+/// A tab, which the handoff's IA did not have: it put Activity behind Trends on
+/// the assumption that HealthKit would sync workouts by itself, making this a
+/// screen you *review*. Without that entitlement, recording a workout is a daily
+/// action, and a daily action does not belong inside a weekly-review tab. Its
+/// job is to make the balance actionable — what is owed, what has been burned
+/// against it today, and a way to record more.
 ///
 /// 3b's "Connect Apple Health" screen is deliberately absent. HealthKit needs
 /// an entitlement this project cannot provision yet, and a button that opens a
@@ -23,16 +25,18 @@ struct ActivityView: View {
     @State private var isLogging = false
 
     var body: some View {
-        Group {
-            if let viewModel {
-                content(viewModel)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        NavigationStack {
+            Group {
+                if let viewModel {
+                    content(viewModel)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .background(Theme.Palette.paper)
+            .navigationTitle("Balance")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .background(Theme.Palette.paper)
-        .navigationTitle("Balance")
-        .navigationBarTitleDisplayMode(.inline)
         .task {
             guard viewModel == nil else { return }
             let model = ActivityViewModel(userID: userID)

@@ -12,6 +12,11 @@ import Food4ThoughtCore
 struct TodayView: View {
     let userID: UUID
 
+    /// Tapping the balance switches to the Activity tab rather than pushing it.
+    /// Activity is a tab now, and pushing a copy on top of Home would put the
+    /// same screen in two places at once — with two independent loads of it.
+    let onOpenActivity: () -> Void
+
     @State private var viewModel: TodayViewModel?
     @State private var route: Route?
 
@@ -21,9 +26,6 @@ struct TodayView: View {
     /// floor — there is a single presentation slot and the outgoing sheet still
     /// owns it. `onDismiss` is the point where it is free again.
     @State private var queuedRoute: Route?
-
-    /// Drives the push to Activity — the screen the balance affordance names.
-    @State private var isShowingActivity = false
 
     /// A single route rather than several `.sheet` modifiers stacked on one
     /// view — SwiftUI only reliably honours one, and the failure mode is a
@@ -43,25 +45,16 @@ struct TodayView: View {
     }
 
     var body: some View {
-        // A stack purely so the balance affordance can push Activity. The bar
-        // is hidden because this screen draws its own "Today" header — a second
-        // title above it would be the same word twice.
-        NavigationStack {
-            Group {
-                if let viewModel {
-                    content(viewModel)
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .background(Theme.Palette.paper)
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(isPresented: $isShowingActivity) {
-                ActivityView(userID: userID) {
-                    Task { await viewModel?.load() }
-                }
+        // No NavigationStack: this screen pushes nothing and draws its own
+        // "Today" header, so a bar above it would be the same word twice.
+        Group {
+            if let viewModel {
+                content(viewModel)
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(Theme.Palette.paper)
         .task {
             guard viewModel == nil else { return }
             let model = TodayViewModel(userID: userID)
@@ -341,7 +334,7 @@ struct TodayView: View {
     private func balanceCallout(_ viewModel: TodayViewModel) -> some View {
         if let balance = viewModel.balance {
             Button {
-                isShowingActivity = true
+                onOpenActivity()
             } label: {
                 switch balance.state {
                 case .debt: debtBanner(balance, burnedToday: viewModel.burnedTodayKcal)

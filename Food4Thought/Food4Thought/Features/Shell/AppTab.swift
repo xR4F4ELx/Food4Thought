@@ -2,13 +2,21 @@ import Foundation
 
 /// The four destinations either side of the centre log button.
 ///
-/// Activity & balance is deliberately absent: the handoff pushes to it from the
-/// Home balance affordance and the Trends debt card, so it stays a detail
-/// screen rather than becoming a fifth thing to choose between.
+/// Activity earns a tab where the food library does not, which is a deliberate
+/// departure from the handoff's IA. That IA put Activity behind Trends because
+/// it assumed HealthKit would sync workouts on its own, making Activity a place
+/// you *review*. Without that entitlement, logging a workout is a daily action —
+/// and a daily action does not belong inside a weekly-review tab.
+///
+/// The food library moves into the log sheet, as the "My foods" shelf. It was
+/// always a list of foods to log from that also happened to be editable, and
+/// the sheet is where someone is already looking at lists of foods — creating,
+/// correcting and removing one now happen next to the search that failed to
+/// find it, rather than a tab away.
 enum AppTab: String, CaseIterable, Identifiable {
     case today
     case trends
-    case foods
+    case activity
     case settings
 
     var id: String { rawValue }
@@ -17,19 +25,16 @@ enum AppTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: "Today"
         case .trends: "Trends"
-        case .foods: "Foods"
+        case .activity: "Activity"
         case .settings: "Settings"
         }
     }
 
-    /// The wireframe draws Foods as a circled plus, which reads as a second add
-    /// button next to the FAB. A fork and knife says "your foods" without
-    /// competing with the primary action.
     var symbolName: String {
         switch self {
         case .today: "square.grid.2x2"
         case .trends: "chart.line.uptrend.xyaxis"
-        case .foods: "fork.knife"
+        case .activity: "figure.walk"
         case .settings: "gearshape"
         }
     }
@@ -38,7 +43,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: "square.grid.2x2.fill"
         case .trends: "chart.line.uptrend.xyaxis"
-        case .foods: "fork.knife"
+        case .activity: "figure.walk"
         case .settings: "gearshape.fill"
         }
     }

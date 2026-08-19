@@ -22,10 +22,21 @@ struct MainTabView: View {
 
             Group {
                 switch selection {
-                case .today: TodayView(userID: user.id).id(todayReloadToken)
-                case .trends: TrendsView()
-                case .foods: FoodsView(userID: user.id)
-                case .settings: SettingsView(user: user)
+                case .today:
+                    // The balance affordance selects the Activity tab rather
+                    // than pushing a copy of it: with Activity promoted to a
+                    // tab, a push from Home would put the same screen in two
+                    // places at once.
+                    TodayView(userID: user.id) { selection = .activity }
+                        .id(todayReloadToken)
+                case .trends:
+                    TrendsView()
+                case .activity:
+                    // Logging exercise moves the balance Home shows, so Home is
+                    // rebuilt the next time it is selected.
+                    ActivityView(userID: user.id) { todayReloadToken = UUID() }
+                case .settings:
+                    SettingsView(user: user)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,7 +49,7 @@ struct MainTabView: View {
         .sheet(isPresented: $isLoggingFood) {
             LogFoodSheet(userID: user.id)
                 // Deliberately not switching to Today as well: the FAB is
-                // reachable from every tab, and yanking someone off Foods
+                // reachable from every tab, and yanking someone off Activity
                 // because they cancelled a sheet is a worse bug than a
                 // redundant fetch.
                 .onDisappear { todayReloadToken = UUID() }
