@@ -63,13 +63,6 @@ protocol FoodRepository: Sendable {
     /// index for it, so a repeat lookup never has to reach USDA.
     func searchCatalogue(matching query: String, userID: UUID) async throws -> [FoodSuggestion]
 
-    /// Yesterday's entries for one slot, ready to re-log unchanged.
-    func entriesForCopy(
-        userID: UUID,
-        mealKey: String,
-        daysAgo: Int
-    ) async throws -> [CopyableEntry]
-
     /// Gives a USDA hit a `food_items` row so an entry can point at it, or
     /// returns the id of the row that already caches it.
     func cacheIfNeeded(_ item: FoodItem, userID: UUID) async throws -> UUID
@@ -91,7 +84,7 @@ protocol FoodRepository: Sendable {
     /// the user has just said they never ate — the same reason `log` rebuilds.
     func deleteEntry(id: UUID, loggedAt: Date, userID: UUID) async throws
 
-    /// Every food this user has created by hand, for the Foods tab.
+    /// Every food this user has created by hand, for the "My foods" shelf.
     func customFoods(userID: UUID) async throws -> [FoodItem]
 
     /// Rewrites one of the user's own foods.
@@ -114,12 +107,4 @@ protocol FoodRepository: Sendable {
     /// nullable — so one reusable row stands in for all of them rather than
     /// littering the catalogue with one throwaway food per entry.
     func quickAddItem(userID: UUID) async throws -> FoodItem
-}
-
-/// A past entry offered back for one-tap re-logging.
-struct CopyableEntry: Equatable, Sendable, Identifiable {
-    let id: UUID
-    let item: FoodItem
-    let quantity: Double
-    let facts: NutritionFacts
 }

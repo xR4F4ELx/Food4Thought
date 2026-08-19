@@ -22,7 +22,7 @@ final class LogFoodViewModel {
     enum FastPath: String, CaseIterable, Identifiable {
         case recents
         case favorites
-        case copyYesterday
+        case myFoods
         case quickAdd
 
         var id: String { rawValue }
@@ -31,8 +31,23 @@ final class LogFoodViewModel {
             switch self {
             case .recents: "Recents"
             case .favorites: "★ Favorites"
-            case .copyYesterday: "Copy yesterday"
+            case .myFoods: "My foods"
             case .quickAdd: "Quick add"
+            }
+        }
+    }
+
+    /// Creating and editing a food share one presentation slot. Two `.sheet`
+    /// modifiers on a single view is the bug that silently does nothing —
+    /// SwiftUI only reliably honours one.
+    enum CustomFoodRoute: Identifiable {
+        case create
+        case edit(FoodItem)
+
+        var id: String {
+            switch self {
+            case .create: "create"
+            case .edit(let food): "edit-\(food.id)"
             }
         }
     }
@@ -54,7 +69,14 @@ final class LogFoodViewModel {
     private(set) var selectedSlot: MealSlot?
     private(set) var path: FastPath = .recents
     private(set) var suggestions: [FoodSuggestion] = []
-    private(set) var copyableEntries: [CopyableEntry] = []
+
+    /// The foods this user made by hand — the "My foods" shelf.
+    ///
+    /// Held apart from `suggestions` because this shelf is a library as well as
+    /// a list to log from: its rows can be edited and deleted, and the others
+    /// cannot.
+    private(set) var myFoods: [FoodItem] = []
+
     private(set) var favoriteIDs: Set<UUID> = []
     private(set) var isLoading = false
     private(set) var isSearching = false
@@ -71,7 +93,14 @@ final class LogFoodViewModel {
     /// Non-nil while the 2d quantity sheet is up.
     var pendingPortion: PortionStepper?
     var isQuickAdding = false
-    var isCreatingCustomFood = false
+
+    /// Non-nil while the create-or-edit food sheet is up.
+    var customFoodRoute: CustomFoodRoute?
+
+    /// Set when a delete was refused because entries still point at the food.
+    /// Held apart from `errorMessage` because it is not a failure — it is the
+    /// database protecting history, and it deserves its own explanation.
+    var blockedDeletion: FoodItem?
 
     /// What has gone in since the sheet opened.
     ///
@@ -153,12 +182,10 @@ final class LogFoodViewModel {
         }
     }
 
+    /// Changing the slot never reloads a shelf: every fast path is a list of
+    /// foods, and which meal they are headed for does not change what is on it.
     func select(slot: MealSlot) {
         selectedSlot = slot
-        // Copy-yesterday is the one path whose contents depend on the slot.
-        if path == .copyYesterday {
-            Task { await select(path: .copyYesterday) }
-        }
     }
 
     func select(path newPath: FastPath) async {
@@ -170,7 +197,7 @@ final class LogFoodViewModel {
         switch newPath {
         case .quickAdd:
             isQuickAdding = true
-        case .recents, .favorites, .copyYesterday:
+        case .recents, .favorites, .myFoods:
             await loadPath(newPath)
         }
     }
@@ -182,20 +209,14 @@ final class LogFoodViewModel {
         do {
             switch path {
             case .recents:
-                copyableEntries = []
                 suggestions = FoodSearchRanking.ranked(
                     try await foods.recents(userID: userID, withinDays: Self.recentsWindowDays)
                 )
             case .favorites:
-                copyableEntries = []
                 suggestions = FoodSearchRanking.ranked(try await foods.favorites(userID: userID))
-            case .copyYesterday:
+            case .myFoods:
                 suggestions = []
-                copyableEntries = try await foods.entriesForCopy(
-                    userID: userID,
-                    mealKey: selectedSlot?.key ?? "",
-                    daysAgo: 1
-                )
+                myFoods = try await foods.customFoods(userID: userID)
             case .quickAdd:
                 break
             }
@@ -233,7 +254,6 @@ final class LogFoodViewModel {
 
         errorMessage = nil
         searchNotice = nil
-        copyableEntries = []
 
         var found: [FoodSuggestion] = []
 
@@ -325,11 +345,15 @@ final class LogFoodViewModel {
         }
     }
 
+    // MARK: - The user's own foods
+
     /// Saves a hand-entered food and goes straight to the quantity step.
     ///
     /// Straight through rather than back to a list the user would then have to
-    /// find it in: they created this food in order to log it, and the serving
-    /// they just typed is already the right default.
+    /// find it in: they opened the log sheet in order to log something, and the
+    /// serving they just typed is already the right default. Nothing is written
+    /// to the day until the quantity step is confirmed, so someone who only
+    /// wanted to stock their library can dismiss it and the food still stands.
     func createCustomFood(_ draft: CustomFoodDraft) async {
         guard let item = draft.validated else { return }
 
@@ -339,44 +363,62 @@ final class LogFoodViewModel {
 
         do {
             let saved = try await foods.createCustomFood(item, userID: userID)
-            isCreatingCustomFood = false
+            customFoodRoute = nil
+            // The shelf behind the quantity step has to show it, or dismissing
+            // without logging looks like the food was never saved.
+            myFoods = try await foods.customFoods(userID: userID)
             pendingPortion = PortionStepper(food: saved, usualServings: 1)
         } catch {
             errorMessage = message(for: error)
         }
     }
 
-    /// Re-logs a whole slot from yesterday in one write.
-    func copyYesterday() async {
-        guard let slot = selectedSlot, !copyableEntries.isEmpty else { return }
+    /// Rewrites one of the user's own foods.
+    ///
+    /// Past entries keep the figures they were logged with — they snapshot
+    /// their own nutrients, so fixing a food corrects it going forward without
+    /// rewriting days that already happened.
+    ///
+    /// Returns whether it landed, so the sheet closes on success and stays up
+    /// with its contents on failure.
+    @discardableResult
+    func saveCustomFood(_ draft: CustomFoodDraft, to original: FoodItem) async -> Bool {
+        guard let edited = draft.validated, let id = original.storedID else { return false }
 
         isCommitting = true
         errorMessage = nil
         defer { isCommitting = false }
 
-        do {
-            try await foods.log(
-                copyableEntries.map {
-                    FoodLogDraft(
-                        foodItemID: $0.item.storedID ?? UUID(),
-                        mealKey: slot.key,
-                        quantity: $0.quantity,
-                        facts: $0.facts,
-                        loggedAt: now()
-                    )
-                },
-                userID: userID
-            )
-            loggedItems.append(contentsOf: copyableEntries.map {
-                LoggedSessionItem(name: $0.item.name, calories: $0.facts.calories)
-            })
+        let updated = FoodItem(
+            id: .stored(id),
+            source: original.source,
+            externalID: original.externalID,
+            name: edited.name,
+            brand: edited.brand,
+            serving: edited.serving,
+            facts: edited.facts
+        )
 
-            // The sheet used to close on a write, which is what stopped "Log
-            // all 3 items" being tapped twice. It stays open now, so the copy
-            // has to retire itself — and recents is where the just-copied meal
-            // now lives, if any of it needs adjusting.
-            copyableEntries = []
-            await select(path: .recents)
+        do {
+            _ = try await foods.updateCustomFood(updated, userID: userID)
+            myFoods = try await foods.customFoods(userID: userID)
+            return true
+        } catch {
+            errorMessage = message(for: error)
+            return false
+        }
+    }
+
+    func deleteCustomFood(_ item: FoodItem) async {
+        guard let id = item.storedID else { return }
+
+        errorMessage = nil
+
+        do {
+            try await foods.deleteCustomFood(id: id, userID: userID)
+            myFoods = try await foods.customFoods(userID: userID)
+        } catch FoodRepositoryError.foodInUse {
+            blockedDeletion = item
         } catch {
             errorMessage = message(for: error)
         }

@@ -228,34 +228,6 @@ struct LogFoodViewModelTests {
         #expect(viewModel.searchNotice != nil)
     }
 
-    @Test("copy-yesterday re-logs the whole slot in one write")
-    func copyYesterdayLogsEverything() async {
-        let entries = [
-            CopyableEntry(
-                id: UUID(),
-                item: storedItem(name: "Chicken rice bowl"),
-                quantity: 3.2,
-                facts: NutritionFacts(calories: 620, protein: 42, carbs: 68, fat: 16)
-            ),
-            CopyableEntry(
-                id: UUID(),
-                item: storedItem(UUID(), name: "Banana"),
-                quantity: 1,
-                facts: NutritionFacts(calories: 105, protein: 1, carbs: 27, fat: 0)
-            )
-        ]
-        let foods = FakeFoodRepository(copyables: entries)
-        let viewModel = makeViewModel(foods: foods)
-        await viewModel.load()
-
-        await viewModel.select(path: .copyYesterday)
-        await viewModel.copyYesterday()
-
-        let batch = await foods.logged.first
-        #expect(batch?.count == 2)
-        #expect(batch?.allSatisfy { $0.mealKey == "lunch" } == true)
-    }
-
     @Test("quick add logs calories only, against the reusable quick-add item")
     func quickAddLogsCaloriesOnly() async {
         let foods = FakeFoodRepository()
@@ -319,13 +291,13 @@ struct LogFoodViewModelTests {
         let foods = FakeFoodRepository()
         let viewModel = makeViewModel(foods: foods)
         await viewModel.load()
-        viewModel.isCreatingCustomFood = true
+        viewModel.customFoodRoute = .create
 
         await viewModel.createCustomFood(
             CustomFoodDraft(name: "Mum's adobo", servingAmount: "250", servingUnit: "g", calories: "420")
         )
 
-        #expect(viewModel.isCreatingCustomFood == false)
+        #expect(viewModel.customFoodRoute == nil)
         #expect(viewModel.pendingPortion?.food.name == "Mum's adobo")
         // Saved with a real row id, so the entry can point at it.
         #expect(viewModel.pendingPortion?.food.storedID == foods.newlyCachedID)
@@ -343,16 +315,19 @@ struct LogFoodViewModelTests {
         #expect(viewModel.pendingPortion == nil)
     }
 
-    @Test("switching the slot reloads copy-yesterday, which is the one slot-dependent path")
-    func changingSlotReloadsCopyYesterday() async {
-        let viewModel = makeViewModel(foods: FakeFoodRepository(copyables: []))
+    @Test("switching the slot only changes where the next food goes, not the shelf")
+    func changingSlotKeepsTheShelf() async {
+        let mine = storedItem(name: "Mum's adobo")
+        let viewModel = makeViewModel(foods: FakeFoodRepository(customFoods: [mine]))
         await viewModel.load()
-        await viewModel.select(path: .copyYesterday)
+        await viewModel.select(path: .myFoods)
 
         let dinner = try! #require(viewModel.slots.first { $0.key == "dinner" })
         viewModel.select(slot: dinner)
 
         #expect(viewModel.selectedSlot?.key == "dinner")
+        #expect(viewModel.path == .myFoods)
+        #expect(viewModel.myFoods.map(\.name) == ["Mum's adobo"])
     }
 
     // MARK: - Logging more than one thing in a sitting
@@ -429,33 +404,6 @@ struct LogFoodViewModelTests {
         // Still up, so the user can retry without finding the food again.
         #expect(viewModel.pendingPortion != nil)
         #expect(viewModel.errorMessage != nil)
-    }
-
-    @Test("copying yesterday records every item it logged")
-    func copyYesterdayRecordsEachItem() async {
-        let entries = [
-            CopyableEntry(
-                id: UUID(),
-                item: distinctItem(name: "Burger", calories: 540),
-                quantity: 1,
-                facts: NutritionFacts(calories: 540, protein: 30, carbs: 40, fat: 26)
-            ),
-            CopyableEntry(
-                id: UUID(),
-                item: distinctItem(name: "Cola", calories: 200),
-                quantity: 1,
-                facts: NutritionFacts(calories: 200, protein: 0, carbs: 50, fat: 0)
-            )
-        ]
-        let foods = FakeFoodRepository(copyables: entries)
-        let viewModel = makeViewModel(foods: foods)
-        await viewModel.load()
-        await viewModel.select(path: .copyYesterday)
-
-        await viewModel.copyYesterday()
-
-        #expect(viewModel.loggedItems.map(\.name) == ["Burger", "Cola"])
-        #expect(viewModel.loggedKcal == 740)
     }
 
     @Test("a quick add joins the sitting like anything else")

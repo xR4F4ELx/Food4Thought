@@ -2,13 +2,12 @@ import Foundation
 import Food4ThoughtCore
 @testable import Food4Thought
 
-/// Shared by the logging, Today and Foods suites — one fake so a protocol
+/// Shared by the logging, library and Today suites — one fake so a protocol
 /// change surfaces in one place rather than three.
 actor FakeFoodRepository: FoodRepository {
     var recentSuggestions: [FoodSuggestion] = []
     var favoriteSuggestions: [FoodSuggestion] = []
     var catalogueResults: [FoodSuggestion] = []
-    var copyables: [CopyableEntry] = []
     var storedFavorites: Set<UUID> = []
     private(set) var logged: [[FoodLogDraft]] = []
     private(set) var cachedItems: [FoodItem] = []
@@ -30,7 +29,6 @@ actor FakeFoodRepository: FoodRepository {
         recents: [FoodSuggestion] = [],
         favorites: [FoodSuggestion] = [],
         catalogue: [FoodSuggestion] = [],
-        copyables: [CopyableEntry] = [],
         customFoods: [FoodItem] = [],
         logFailure: (any Error)? = nil,
         updateFailure: (any Error)? = nil,
@@ -40,7 +38,6 @@ actor FakeFoodRepository: FoodRepository {
         self.recentSuggestions = recents
         self.favoriteSuggestions = favorites
         self.catalogueResults = catalogue
-        self.copyables = copyables
         self.storedCustomFoods = customFoods
         self.logFailure = logFailure
         self.updateFailure = updateFailure
@@ -51,7 +48,6 @@ actor FakeFoodRepository: FoodRepository {
     func recents(userID: UUID, withinDays days: Int) async throws -> [FoodSuggestion] { recentSuggestions }
     func favorites(userID: UUID) async throws -> [FoodSuggestion] { favoriteSuggestions }
     func searchCatalogue(matching query: String, userID: UUID) async throws -> [FoodSuggestion] { catalogueResults }
-    func entriesForCopy(userID: UUID, mealKey: String, daysAgo: Int) async throws -> [CopyableEntry] { copyables }
 
     func cacheIfNeeded(_ item: FoodItem, userID: UUID) async throws -> UUID {
         cachedItems.append(item)
@@ -72,7 +68,8 @@ actor FakeFoodRepository: FoodRepository {
             facts: item.facts
         )
         // Lands in the library too, so a reload after creating sees it — the
-        // Foods tab reads this list back and would otherwise look unchanged.
+        // My foods shelf reads this list back and would otherwise look
+        // unchanged.
         storedCustomFoods.append(saved)
         return saved
     }

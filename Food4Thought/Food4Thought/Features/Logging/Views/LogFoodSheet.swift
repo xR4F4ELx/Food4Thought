@@ -104,15 +104,32 @@ struct LogFoodSheet: View {
                 // three modifiers on one: SwiftUI only reliably honours one
                 // .sheet per view, and the failure is a button that silently
                 // does nothing.
-                .sheet(isPresented: Binding(get: { viewModel.isCreatingCustomFood }, set: { viewModel.isCreatingCustomFood = $0 })) {
-                    CustomFoodSheet(isSaving: viewModel.isCommitting) { draft in
-                        Task { await viewModel.createCustomFood(draft) }
+                .sheet(item: Binding(get: { viewModel.customFoodRoute }, set: { viewModel.customFoodRoute = $0 })) { route in
+                    customFoodSheet(route, viewModel)
+                }
+                .alert(
+                    "Still in use",
+                    isPresented: Binding(
+                        get: { viewModel.blockedDeletion != nil },
+                        set: { if !$0 { viewModel.blockedDeletion = nil } }
+                    ),
+                    presenting: viewModel.blockedDeletion
+                ) { food in
+                    Button("Edit instead") {
+                        viewModel.blockedDeletion = nil
+                        // A turn later: the alert still owns the presentation
+                        // slot as its button action runs, and a sheet assigned
+                        // here never appears.
+                        DispatchQueue.main.async { viewModel.customFoodRoute = .edit(food) }
                     }
+                    Button("OK", role: .cancel) { viewModel.blockedDeletion = nil }
+                } message: { _ in
+                    Text(FoodRepositoryError.foodInUse.errorDescription ?? "")
                 }
 
             HStack(spacing: 18) {
                 Button("Create a food") {
-                    viewModel.isCreatingCustomFood = true
+                    viewModel.customFoodRoute = .create
                 }
                 Button("Quick add calories only") {
                     viewModel.isQuickAdding = true
@@ -134,6 +151,33 @@ struct LogFoodSheet: View {
                 },
                 onToggleFavorite: { Task { await viewModel.toggleFavorite(portion.food) } },
                 onLog: { Task { await viewModel.confirmPendingPortion() } }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func customFoodSheet(
+        _ route: LogFoodViewModel.CustomFoodRoute,
+        _ viewModel: LogFoodViewModel
+    ) -> some View {
+        switch route {
+        case .create:
+            CustomFoodSheet(isSaving: viewModel.isCommitting) { draft in
+                Task { await viewModel.createCustomFood(draft) }
+            }
+        case .edit(let food):
+            CustomFoodSheet(
+                isSaving: viewModel.isCommitting,
+                draft: CustomFoodDraft(food: food),
+                title: "Edit food",
+                focusesNameOnAppear: false,
+                onSave: { draft in
+                    Task {
+                        if await viewModel.saveCustomFood(draft, to: food) {
+                            viewModel.customFoodRoute = nil
+                        }
+                    }
+                }
             )
         }
     }
@@ -249,8 +293,8 @@ struct LogFoodSheet: View {
             Spacer()
             ProgressView()
             Spacer()
-        } else if viewModel.path == .copyYesterday && viewModel.query.isEmpty {
-            copyYesterdayList(viewModel)
+        } else if viewModel.path == .myFoods && viewModel.query.isEmpty {
+            myFoodsList(viewModel)
         } else if viewModel.suggestions.isEmpty {
             Spacer()
             Text(emptyMessage(viewModel))
@@ -276,51 +320,59 @@ struct LogFoodSheet: View {
         }
     }
 
+    /// The user's own library, inside the sheet that logs from it.
+    ///
+    /// A `List` rather than the scroll view the other shelves use, for the
+    /// swipe actions: this is the one place a food can be corrected or removed,
+    /// so the rows have to carry more than a tap.
     @ViewBuilder
-    private func copyYesterdayList(_ viewModel: LogFoodViewModel) -> some View {
-        if viewModel.copyableEntries.isEmpty {
+    private func myFoodsList(_ viewModel: LogFoodViewModel) -> some View {
+        if viewModel.myFoods.isEmpty {
             Spacer()
-            Text("Nothing logged to \(viewModel.selectedSlot?.label ?? "this meal") yesterday.")
+            Text("Nothing here yet. Anything you cook or buy that isn't in the food database can live here — tap Create a food to add one.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.Palette.inkSecondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
             Spacer()
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(viewModel.copyableEntries) { entry in
-                        HStack {
-                            Text(entry.item.name)
-                                .font(.body)
-                                .foregroundStyle(Theme.Palette.ink)
-                            Spacer()
-                            Text("\(Int(entry.facts.calories.rounded()))")
-                                .font(Theme.Typography.stat(16))
-                                .foregroundStyle(Theme.Palette.inkSecondary)
+            List {
+                ForEach(viewModel.myFoods) { food in
+                    let suggestion = FoodSuggestion(item: food, origin: .catalogue)
+
+                    FoodSuggestionRow(
+                        suggestion: suggestion,
+                        isFavorite: viewModel.isFavorite(food)
+                    ) {
+                        viewModel.pick(suggestion)
+                    }
+                    // Overrides the row's own hint: here the same row also
+                    // hides edit and delete behind a swipe, which nobody using
+                    // VoiceOver would otherwise know about.
+                    .accessibilityHint("Opens the quantity step. Swipe left to edit or delete this food.")
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(Theme.Palette.paper)
+                    .listRowSeparatorTint(Theme.Palette.line)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            Task { await viewModel.deleteCustomFood(food) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
+
+                        Button {
+                            viewModel.customFoodRoute = .edit(food)
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(Theme.Palette.inkSecondary)
                     }
                 }
-                .padding(.vertical, 6)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
-
-            Button {
-                Task { await viewModel.copyYesterday() }
-            } label: {
-                Text("Log all \(viewModel.copyableEntries.count) items · \(copyTotal(viewModel)) kcal")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: Theme.Metrics.primaryButtonHeight)
-                    .background(Theme.Palette.accent, in: .rect(cornerRadius: Theme.Radius.control))
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.isCommitting)
         }
-    }
-
-    private func copyTotal(_ viewModel: LogFoodViewModel) -> Int {
-        Int(viewModel.copyableEntries.reduce(0) { $0 + $1.facts.calories }.rounded())
     }
 
     private func emptyMessage(_ viewModel: LogFoodViewModel) -> String {

@@ -134,43 +134,6 @@ struct SupabaseFoodRepository: FoodRepository {
         return rows.map { FoodSuggestion(item: $0.foodItem, origin: .catalogue) }
     }
 
-    func entriesForCopy(
-        userID: UUID,
-        mealKey: String,
-        daysAgo: Int
-    ) async throws -> [CopyableEntry] {
-        let target = calendar.date(byAdding: .day, value: -daysAgo, to: .now) ?? .now
-        let start = calendar.startOfDay(for: target)
-        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
-
-        let rows: [LogEntryWithFood] = try await run {
-            try await client
-                .from("food_log_entries")
-                .select("id, logged_at, quantity, calories, protein_g, carbs_g, fat_g, food_items(*)")
-                .eq("user_id", value: userID)
-                .eq("meal_key", value: mealKey)
-                .gte("logged_at", value: start.ISO8601Format())
-                .lt("logged_at", value: end.ISO8601Format())
-                .order("logged_at", ascending: true)
-                .execute()
-                .value
-        }
-
-        return rows.map {
-            CopyableEntry(
-                id: $0.id,
-                item: $0.foodItems.foodItem,
-                quantity: $0.quantity,
-                facts: NutritionFacts(
-                    calories: $0.calories,
-                    protein: $0.proteinG,
-                    carbs: $0.carbsG,
-                    fat: $0.fatG
-                )
-            )
-        }
-    }
-
     // MARK: - Writing
 
     func cacheIfNeeded(_ item: FoodItem, userID: UUID) async throws -> UUID {
