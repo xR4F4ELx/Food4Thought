@@ -65,26 +65,27 @@ struct TrendsView: View {
             }
 
             if let viewModel {
-                if viewModel.weighIns.isEmpty {
-                    Text("No weigh-ins yet. \(Self.timingAdvice)")
-                        .font(.subheadline)
+                latest(viewModel)
+
+                // Always drawn, filling in as weigh-ins arrive. An empty axis
+                // is an invitation; a missing chart is just a missing feature.
+                chart(viewModel)
+                legend(viewModel)
+
+                if let standing = viewModel.standingText ?? viewModel.planSummary {
+                    Text(standing)
+                        .font(.footnote)
                         .foregroundStyle(Theme.Palette.inkSecondary)
-                } else {
-                    latest(viewModel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-                    if viewModel.hasChart {
-                        chart(viewModel)
-                        legend
-                    }
-
-                    if let standing = viewModel.standingText ?? viewModel.planSummary {
-                        Text(standing)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.Palette.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
+                if viewModel.hasWeighIns {
                     history(viewModel)
+                } else {
+                    Text(Self.timingAdvice)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 ProgressView()
@@ -180,17 +181,32 @@ struct TrendsView: View {
                 }
             }
         }
-        // Padded rather than zeroed: a weight axis starting at zero flattens
-        // every real change into a straight line near the top.
-        .chartYScale(domain: .automatic(includesZero: false))
+        // Held rather than automatic: the axes have to stand still while the
+        // data fills in, or the first few weigh-ins each rescale the whole
+        // chart and nothing looks like progress.
+        .chartXScale(domain: viewModel.chartXDomain)
+        .chartYScale(domain: viewModel.chartYDomain)
         .frame(height: 180)
+        .overlay {
+            if !viewModel.hasWeighIns {
+                Text("Your weight will appear here")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.inkTertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Theme.Palette.fillSubtle, in: .capsule)
+            }
+        }
         .accessibilityLabel("Weight over time, with your plan drawn against it")
     }
 
-    private var legend: some View {
+    /// The plan key only appears when there is a plan line to explain.
+    private func legend(_ viewModel: TrendsViewModel) -> some View {
         HStack(spacing: 16) {
             legendKey(WeightPoint.Series.actual, colour: Theme.Palette.accent, isDashed: false)
-            legendKey(WeightPoint.Series.plan, colour: Theme.Palette.inkTertiary, isDashed: true)
+            if !viewModel.planPoints.isEmpty {
+                legendKey(WeightPoint.Series.plan, colour: Theme.Palette.inkTertiary, isDashed: true)
+            }
             Spacer()
         }
     }

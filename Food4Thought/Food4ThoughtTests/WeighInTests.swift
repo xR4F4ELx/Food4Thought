@@ -118,15 +118,15 @@ struct WeighInTests {
 
         #expect(viewModel.latestWeightText == "74.5")
         #expect(viewModel.changeText == nil)
-        // One point is not a line, and two marks joined by nothing read as a
-        // trend that has not happened.
-        #expect(viewModel.hasChart == false)
+        // One reading, one point — the axes still stand around it.
+        #expect(viewModel.actualPoints.count == 1)
     }
 
-    @Test("two weigh-ins on the same morning are a moment, not a trend")
-    func sameDayWeighInsDrawNoChart() async {
-        // Two real readings, no elapsed time. Charted, they came out as a
-        // vertical bar that reads as a rendering fault.
+    @Test("two weigh-ins on the same morning plot as one day, latest first")
+    func sameDayWeighInsCollapseToOnePoint() async throws {
+        // Plotted as two points they drew a vertical bar — two real readings
+        // with no elapsed time between them. The later one wins because
+        // re-weighing is the only way to correct a mistyped number.
         let weights = FakeWeightRepository(stored: [
             WeighIn(id: UUID(), recordedAt: daysBefore(6), weightKg: 57.0),
             WeighIn(id: UUID(), recordedAt: daysBefore(6).addingTimeInterval(3600), weightKg: 57.5)
@@ -135,9 +135,68 @@ struct WeighInTests {
 
         await viewModel.load()
 
-        #expect(viewModel.hasChart == false)
-        // The plan still has something to say while the chart waits.
-        #expect(viewModel.planSummary != nil)
+        #expect(viewModel.actualPoints.count == 1)
+        #expect(viewModel.actualPoints.first?.kilograms == 57.5)
+        // Both readings still show in the list underneath.
+        #expect(viewModel.weighIns.count == 2)
+    }
+
+    @Test("the headline change matches the line drawn beside it")
+    func changeMatchesTheChart() async {
+        // Read off the raw rows, the header claimed 1.0 kg while the chart fell
+        // 0.5 — the earlier reading of a doubled-up day counted for one and not
+        // the other.
+        let weights = FakeWeightRepository(stored: [
+            WeighIn(id: UUID(), recordedAt: daysBefore(7), weightKg: 57.5),
+            WeighIn(id: UUID(), recordedAt: daysBefore(7).addingTimeInterval(1800), weightKg: 57.0),
+            WeighIn(id: UUID(), recordedAt: daysBefore(0), weightKg: 56.5)
+        ])
+        let viewModel = makeTrendsViewModel(weights)
+
+        await viewModel.load()
+
+        let plotted = viewModel.actualPoints
+        #expect(plotted.count == 2)
+        #expect(plotted.first?.kilograms == 57.0)
+        #expect(viewModel.changeText == "−0.5 kg over 7 days")
+    }
+
+    @Test("the chart stands even with nothing in it")
+    func emptyChartStillHasAxes() async {
+        // Hidden until the data earned it, the feature was invisible on
+        // exactly the days someone is deciding whether to bother.
+        let viewModel = makeTrendsViewModel(FakeWeightRepository())
+
+        await viewModel.load()
+
+        #expect(viewModel.hasWeighIns == false)
+        #expect(viewModel.actualPoints.isEmpty)
+        // A week wide, so the first weigh-in lands somewhere sensible.
+        #expect(viewModel.chartXDomain.lowerBound < viewModel.chartXDomain.upperBound)
+        #expect(viewModel.chartYDomain.lowerBound < viewModel.chartYDomain.upperBound)
+    }
+
+    @Test("a single weigh-in gets an axis with width, not a squashed one")
+    func singlePointGetsAWindow() async {
+        let weights = FakeWeightRepository(
+            stored: [WeighIn(id: UUID(), recordedAt: morning(), weightKg: 74.5)]
+        )
+        let viewModel = makeTrendsViewModel(weights)
+
+        await viewModel.load()
+
+        #expect(viewModel.actualPoints.count == 1)
+
+        let days = Calendar.current.dateComponents(
+            [.day],
+            from: viewModel.chartXDomain.lowerBound,
+            to: viewModel.chartXDomain.upperBound
+        ).day ?? 0
+        #expect(days >= 7)
+
+        // And a spread, so one reading is not drawn as a cliff.
+        let spread = viewModel.chartYDomain.upperBound - viewModel.chartYDomain.lowerBound
+        #expect(spread >= 1.0)
     }
 
     // MARK: - The plan line
@@ -154,7 +213,7 @@ struct WeighInTests {
 
         await viewModel.load()
 
-        #expect(viewModel.hasChart)
+        #expect(viewModel.hasWeighIns)
         #expect(viewModel.actualPoints.count == 2)
 
         let plan = viewModel.planPoints
@@ -222,7 +281,7 @@ struct WeighInTests {
 
         await viewModel.load()
 
-        #expect(viewModel.hasChart)
+        #expect(viewModel.hasWeighIns)
         #expect(viewModel.planPoints.isEmpty)
         #expect(viewModel.standing == nil)
         #expect(viewModel.standingText == nil)

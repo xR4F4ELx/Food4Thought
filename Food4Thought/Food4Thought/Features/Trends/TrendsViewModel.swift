@@ -71,10 +71,22 @@ final class TrendsViewModel {
         weighIns.sorted { $0.recordedAt < $1.recordedAt }
     }
 
+    /// One point per day, taking the last reading of each.
+    ///
+    /// Plotting every row drew a vertical bar for someone who weighed twice in
+    /// a morning — two real readings, no elapsed time between them. The trend
+    /// wants one value a day, and the later one wins because there is no way to
+    /// delete a weigh-in: re-weighing is how a mistyped number gets corrected.
+    /// Every row still appears in the list underneath.
     var actualPoints: [WeightPoint] {
-        chronological.map {
-            WeightPoint(date: $0.recordedAt, kilograms: $0.weightKg, series: WeightPoint.Series.actual)
-        }
+        let byDay = Dictionary(grouping: chronological) { calendar.startOfDay(for: $0.recordedAt) }
+
+        return byDay
+            .compactMap { day, readings in
+                readings.max { $0.recordedAt < $1.recordedAt }
+                    .map { WeightPoint(date: day, kilograms: $0.weightKg, series: WeightPoint.Series.actual) }
+            }
+            .sorted { $0.date < $1.date }
     }
 
     /// Two points, because a straight line needs no more: where the plan
@@ -118,16 +130,46 @@ final class TrendsViewModel {
         return underThisPlan ?? chronological.first
     }
 
-    /// Two weigh-ins on *different days*, which is the smallest thing that is
-    /// a trend rather than a moment.
+    /// The chart is always drawn, even empty.
     ///
-    /// Counting points alone drew a vertical orange bar for someone who
-    /// weighed twice on one morning — two real readings, no elapsed time, and
-    /// a chart that looks broken.
-    var hasChart: Bool {
-        let days = Set(chronological.map { calendar.startOfDay(for: $0.recordedAt) })
-        return days.count > 1
+    /// Hiding it until the data earned it meant the feature was invisible on
+    /// exactly the days someone was deciding whether to bother — and an axis
+    /// with one dot on it is a clearer invitation to weigh in tomorrow than an
+    /// absence is.
+    var hasWeighIns: Bool { !weighIns.isEmpty }
+
+    /// A week ending today, widened to hold whatever is plotted.
+    ///
+    /// Fixed rather than derived from the data alone: a lone weigh-in would
+    /// otherwise sit on an axis with no width, and the scale would lurch on the
+    /// second reading.
+    var chartXDomain: ClosedRange<Date> {
+        let today = calendar.startOfDay(for: now())
+        let weekAgo = calendar.date(byAdding: .day, value: -Self.minimumChartDays, to: today) ?? today
+
+        let plotted = (actualPoints + planPoints).map(\.date)
+        let start = min(plotted.min() ?? weekAgo, weekAgo)
+        let end = max(plotted.max() ?? today, today)
+
+        return start...end
     }
+
+    /// Padded so a flat week is a flat line across the middle rather than a
+    /// jagged one filling the frame — Charts will happily zoom into 200 g of
+    /// water weight and make it look like a cliff.
+    var chartYDomain: ClosedRange<Double> {
+        let values = (actualPoints + planPoints).map(\.kilograms)
+
+        guard let lowest = values.min(), let highest = values.max() else {
+            return 0...1
+        }
+
+        let padding = max((highest - lowest) * 0.25, Self.minimumChartSpreadKg)
+        return (lowest - padding)...(highest + padding)
+    }
+
+    private static let minimumChartDays = 7
+    private static let minimumChartSpreadKg = 0.5
 
     var latestWeightText: String {
         guard let latest = weighIns.first else { return "—" }
@@ -139,16 +181,21 @@ final class TrendsViewModel {
     /// Day to day is mostly water, and a "+0.4 kg since yesterday" on a screen
     /// called Trends invites exactly the wrong reading of a number that means
     /// nothing on its own.
+    /// Measured off the same one-a-day points the chart plots, not the raw
+    /// rows. Reading them separately had the header claim 1.0 kg while the line
+    /// beside it fell 0.5 — both true of different numbers, and the sort of
+    /// disagreement that makes someone stop trusting the screen.
     var changeText: String? {
-        guard let latest = chronological.last, let earliest = chronological.first, weighIns.count > 1 else {
+        let points = actualPoints
+        guard let latest = points.last, let earliest = points.first, points.count > 1 else {
             return nil
         }
 
-        let delta = latest.weightKg - earliest.weightKg
+        let delta = latest.kilograms - earliest.kilograms
         let days = calendar.dateComponents(
             [.day],
-            from: calendar.startOfDay(for: earliest.recordedAt),
-            to: calendar.startOfDay(for: latest.recordedAt)
+            from: calendar.startOfDay(for: earliest.date),
+            to: calendar.startOfDay(for: latest.date)
         ).day ?? 0
 
         guard days > 0 else { return nil }
