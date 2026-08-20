@@ -277,8 +277,12 @@ struct TrendsView: View {
                 if viewModel.hasMacroHistory {
                     switch viewModel.macroReading {
                     case .split:
-                        dayChips(viewModel)
+                        Text(viewModel.selectedScopeLabel)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.Palette.inkSecondary)
+
                         macroPie(viewModel)
+                        weekStrip(viewModel)
                         sliceRows(viewModel)
                         Text("Shares are of calories, not of weight — a gram of fat carries more than twice the energy of a gram of carbs.")
                             .font(.footnote)
@@ -309,44 +313,52 @@ struct TrendsView: View {
         }
     }
 
-    /// Whole window first, then each logged day, most recent nearest the left.
+    /// Seven days as seven rings, and the day picker at the same time.
     ///
-    /// The window leads because one day's split is a meal or two away from
-    /// meaning nothing — a single big dinner can swing it twenty points.
-    private func dayChips(_ viewModel: TrendsViewModel) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                let dayCount = viewModel.loggedDays.count
-                chip(dayCount == 1 ? "1 day" : "All \(dayCount) days", isSelected: viewModel.selectedDay == nil) {
-                    viewModel.selectedDay = nil
-                }
+    /// The average above it is the figure worth acting on; this is what the
+    /// average hides. A steady 35% fat reads the same whether every day was 35%
+    /// or they alternated 20 and 50, and those are different problems. The
+    /// blanks matter too: an average over two logged days out of seven looks
+    /// exactly as confident as one over seven.
+    private func weekStrip(_ viewModel: TrendsViewModel) -> some View {
+        HStack(spacing: 0) {
+            ForEach(viewModel.weekDays.compactMap { $0 }) { day in
+                let isSelected = viewModel.isSelected(day.day)
 
-                ForEach(viewModel.loggedDays.reversed()) { day in
-                    chip(
-                        day.day.formatted(.dateTime.weekday(.abbreviated).day()),
-                        isSelected: viewModel.selectedDay.map {
-                            Calendar.current.isDate($0, inSameDayAs: day.day)
-                        } ?? false
-                    ) {
-                        viewModel.selectedDay = day.day
+                Button {
+                    viewModel.toggleSelection(day.day)
+                } label: {
+                    VStack(spacing: 5) {
+                        MacroSplitRing(split: day.split)
+
+                        Text(viewModel.weekdayInitial(for: day.day))
+                            .font(.caption2.weight(isSelected ? .bold : .regular))
+                            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.inkTertiary)
                     }
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        isSelected ? Theme.Palette.fill : .clear,
+                        in: .rect(cornerRadius: Theme.Radius.control)
+                    )
+                    .contentShape(.rect)
                 }
+                .buttonStyle(.plain)
+                // Days with nothing in them have nothing to show, so they are
+                // shown — as a gap — but not offered as a choice.
+                .disabled(day.split == nil)
+                .accessibilityLabel(accessibilityLabel(for: day, viewModel))
             }
-            .padding(.vertical, 2)
         }
-        .scrollIndicators(.hidden)
     }
 
-    private func chip(_ label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(isSelected ? Theme.Palette.paper : Theme.Palette.ink)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(isSelected ? Theme.Palette.ink : Theme.Palette.fill, in: .capsule)
-        }
-        .buttonStyle(.plain)
+    private func accessibilityLabel(for day: DailyMacros, _ viewModel: TrendsViewModel) -> String {
+        let date = day.day.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+
+        guard let split = day.split else { return "\(date), nothing logged" }
+
+        let percentages = split.roundedPercentages
+        return "\(date), \(percentages.protein) percent protein, \(percentages.carbs) percent carbs, \(percentages.fat) percent fat"
     }
 
     /// A donut rather than a full pie: the hole carries the total the slices

@@ -38,13 +38,27 @@ extension Theme {
         static let accent = adaptive(light: 0xE4572E, dark: 0xF06B42)
 
         static let protein = adaptive(light: 0xC4452B, dark: 0xE0664B)
-        static let carbs = adaptive(light: 0xD99A2B, dark: 0xE8B155)
-        static let fat = adaptive(light: 0x3E8C79, dark: 0x52A894)
 
-        /// Deliberately the same green as `fat`: credit is a good state, and the
-        /// handoff reuses the token. Named separately so balance views read
-        /// clearly and either can move independently later.
-        static var credit: Color { fat }
+        /// Green for carbs, amber for fat — swapped from the handoff, which had
+        /// them the other way round. Amber reads as the richer, denser thing,
+        /// which is what fat is at 9 kcal a gram; green reads as the everyday
+        /// fuel. The pair is arbitrary either way, but only one of them feels
+        /// like a mistake.
+        static let carbs = adaptive(light: 0x3E8C79, dark: 0x52A894)
+        static let fat = adaptive(light: 0xD99A2B, dark: 0xE8B155)
+
+        /// Amber, for a state that is worth noticing but is not a problem —
+        /// ahead of pace, mostly. Held apart from `fat` for the same reason
+        /// `credit` is held apart from `carbs`.
+        static let caution = adaptive(light: 0xD99A2B, dark: 0xE8B155)
+
+        /// The same green, held separately rather than aliased to a macro.
+        ///
+        /// It used to point at `fat`, which quietly meant the credit state
+        /// would follow a macro's colour wherever that moved — and when the
+        /// macros swapped, credit would have turned amber for no reason anyone
+        /// could name. Credit is green because green is the good state.
+        static let credit = adaptive(light: 0x3E8C79, dark: 0x52A894)
 
         /// Muted slate, not red. Debt is a state to clear, not a failure.
         ///

@@ -368,10 +368,13 @@ struct TodayView: View {
         }
     }
 
+    /// Green for on pace, amber for ahead — the states, not the macros that
+    /// happen to share those colours. Reading them off `fat` and `carbs` meant
+    /// swapping two macro colours silently repainted the pace pill.
     private func paceTint(_ pace: PaceStatus) -> Color {
         switch pace.state {
-        case .onPace: Theme.Palette.fat
-        case .ahead: Theme.Palette.carbs
+        case .onPace: Theme.Palette.credit
+        case .ahead: Theme.Palette.caution
         case .behind: Theme.Palette.inkTertiary
         }
     }

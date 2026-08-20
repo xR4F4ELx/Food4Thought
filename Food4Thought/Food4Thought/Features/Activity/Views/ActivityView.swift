@@ -120,7 +120,7 @@ struct ActivityView: View {
     private func heroTint(_ balance: BalanceSummary) -> Color {
         switch balance.state {
         case .debt: Theme.Palette.debtSurface
-        case .credit: Theme.Palette.fat
+        case .credit: Theme.Palette.credit
         case .square: Theme.Palette.inkSecondary
         }
     }
@@ -242,7 +242,7 @@ struct ActivityView: View {
         HStack(spacing: 12) {
             Image(systemName: entry.symbolName)
                 .font(.system(size: 14))
-                .foregroundStyle(Theme.Palette.fat)
+                .foregroundStyle(Theme.Palette.credit)
                 .frame(width: 34, height: 34)
                 .background(Theme.Palette.fillSubtle, in: .circle)
 
@@ -264,7 +264,7 @@ struct ActivityView: View {
                 // Signed positive: burn moves the balance up, toward credit.
                 Text("+\(Int(entry.activeKcal.rounded()))")
                     .font(Theme.Typography.stat(16))
-                    .foregroundStyle(Theme.Palette.fat)
+                    .foregroundStyle(Theme.Palette.credit)
             }
         }
         .padding(.vertical, 6)

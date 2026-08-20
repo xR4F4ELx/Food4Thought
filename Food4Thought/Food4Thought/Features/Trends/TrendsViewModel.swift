@@ -130,20 +130,42 @@ final class TrendsViewModel {
         macroDays.filter { $0.split != nil }
     }
 
-    /// What the pie is currently describing: one day, or the whole window.
+    /// The last seven days, ending today, whether or not each was logged.
+    ///
+    /// Every day is present so the strip keeps its shape and its gaps: the
+    /// blanks are the point, since an average that looks steady can be two
+    /// logged days out of seven.
+    var weekDays: [DailyMacros?] {
+        let today = calendar.startOfDay(for: now())
+
+        return (0..<Self.weekLength).reversed().compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            return loggedDays.first { calendar.isDate($0.day, inSameDayAs: day) }
+                ?? DailyMacros(day: day, proteinGrams: 0, carbsGrams: 0, fatGrams: 0)
+        }
+    }
+
+    /// The week's logged days, which is what the headline averages over.
+    private var weekLoggedDays: [DailyMacros] {
+        weekDays.compactMap { $0 }.filter { $0.split != nil }
+    }
+
+    /// What the pie is currently describing: one day, or the week.
     private var selectedTotals: DailyMacros? {
         guard let selectedDay else {
-            guard !loggedDays.isEmpty else { return nil }
+            guard !weekLoggedDays.isEmpty else { return nil }
             return DailyMacros(
                 day: calendar.startOfDay(for: now()),
-                proteinGrams: loggedDays.reduce(0) { $0 + $1.proteinGrams },
-                carbsGrams: loggedDays.reduce(0) { $0 + $1.carbsGrams },
-                fatGrams: loggedDays.reduce(0) { $0 + $1.fatGrams }
+                proteinGrams: weekLoggedDays.reduce(0) { $0 + $1.proteinGrams },
+                carbsGrams: weekLoggedDays.reduce(0) { $0 + $1.carbsGrams },
+                fatGrams: weekLoggedDays.reduce(0) { $0 + $1.fatGrams }
             )
         }
 
         return loggedDays.first { calendar.isDate($0.day, inSameDayAs: selectedDay) }
     }
+
+    private static let weekLength = 7
 
     /// The pie, with each slice carrying both readings: the percentage the
     /// angle is drawn from, and the grams it came from. A share with no grams
@@ -173,16 +195,32 @@ final class TrendsViewModel {
         return Int(kcal.rounded())
     }
 
-    /// What the pie is titled — the day, or the span it covers.
+    /// What the pie is titled — the day, or the week behind it.
     var selectedScopeLabel: String {
         guard let selectedDay else {
-            let days = loggedDays.count
-            return days == 1 ? "One logged day" : "\(days) logged days"
+            let days = weekLoggedDays.count
+            return days == 1 ? "This week · 1 logged day" : "This week · \(days) logged days"
         }
 
         return calendar.isDateInToday(selectedDay)
             ? "Today"
             : selectedDay.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+
+    func isSelected(_ day: Date) -> Bool {
+        selectedDay.map { calendar.isDate($0, inSameDayAs: day) } ?? false
+    }
+
+    /// Tapping the selected day again goes back to the week, so the strip is
+    /// the whole control — there is nothing else to find.
+    func toggleSelection(_ day: Date) {
+        selectedDay = isSelected(day) ? nil : day
+    }
+
+    /// One letter under each ring. The weekday initial in the device's own
+    /// locale, rather than a hardcoded M T W.
+    func weekdayInitial(for day: Date) -> String {
+        day.formatted(.dateTime.weekday(.narrow))
     }
 
     /// Days with nothing logged are left out rather than zeroed — a gap says
