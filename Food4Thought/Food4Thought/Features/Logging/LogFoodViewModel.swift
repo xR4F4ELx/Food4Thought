@@ -19,11 +19,15 @@ struct LoggedSessionItem: Identifiable, Equatable, Sendable {
 @MainActor
 final class LogFoodViewModel {
 
+    /// The shelves. Every one is a list of foods to pick from — which is why
+    /// quick add is not among them: it is an action, it opens a sheet rather
+    /// than filling the list, and it has its own button under the list. As a
+    /// chip it also pushed the row past the screen edge, so the shelf most
+    /// people want was the one getting clipped.
     enum FastPath: String, CaseIterable, Identifiable {
         case recents
         case favorites
         case myFoods
-        case quickAdd
 
         var id: String { rawValue }
 
@@ -32,7 +36,6 @@ final class LogFoodViewModel {
             case .recents: "Recents"
             case .favorites: "★ Favorites"
             case .myFoods: "My foods"
-            case .quickAdd: "Quick add"
             }
         }
     }
@@ -194,12 +197,7 @@ final class LogFoodViewModel {
         errorMessage = nil
         searchNotice = nil
 
-        switch newPath {
-        case .quickAdd:
-            isQuickAdding = true
-        case .recents, .favorites, .myFoods:
-            await loadPath(newPath)
-        }
+        await loadPath(newPath)
     }
 
     private func loadPath(_ path: FastPath) async {
@@ -217,8 +215,6 @@ final class LogFoodViewModel {
             case .myFoods:
                 suggestions = []
                 myFoods = try await foods.customFoods(userID: userID)
-            case .quickAdd:
-                break
             }
         } catch {
             errorMessage = message(for: error)
