@@ -18,6 +18,32 @@ struct WeightPoint: Identifiable, Equatable {
     let series: String
 }
 
+/// One macro's contribution to one day, as a bar segment.
+struct MacroBar: Identifiable, Equatable {
+    enum Macro: String, CaseIterable, Identifiable {
+        case protein = "Protein"
+        case carbs = "Carbs"
+        case fat = "Fat"
+
+        var id: String { rawValue }
+    }
+
+    let id = UUID()
+    let day: Date
+    let macro: Macro
+    /// Grams or percent, depending on how the chart is being read.
+    let value: Double
+}
+
+/// Grams answer "how much", shares answer "of what" — different questions
+/// about the same day, and no one chart says both well.
+enum MacroReading: String, CaseIterable, Identifiable {
+    case share = "Share"
+    case grams = "Grams"
+
+    var id: String { rawValue }
+}
+
 /// State for the Trends screen. Weight only, so far.
 @Observable
 @MainActor
@@ -29,11 +55,18 @@ final class TrendsViewModel {
 
     private(set) var weighIns: [WeighIn] = []
     private(set) var goalSet: GoalSetSummary?
+    private(set) var macroDays: [DailyMacros] = []
     private(set) var errorMessage: String?
+
+    /// Which question the macro chart is answering. Share first: the split is
+    /// the thing that is hard to work out from the numbers on Home, where
+    /// today's grams are already on screen.
+    var macroReading: MacroReading = .share
 
     private let userID: UUID
     private let weights: WeightRepository
     private let profiles: ProfileRepository
+    private let macros: MacroHistoryRepository
     private let calendar: Calendar
     private let now: @Sendable () -> Date
 
@@ -41,12 +74,14 @@ final class TrendsViewModel {
         userID: UUID,
         weights: WeightRepository = SupabaseWeightRepository(),
         profiles: ProfileRepository = SupabaseProfileRepository(),
+        macros: MacroHistoryRepository = SupabaseMacroHistoryRepository(),
         calendar: Calendar = .current,
         now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.userID = userID
         self.weights = weights
         self.profiles = profiles
+        self.macros = macros
         self.calendar = calendar
         self.now = now
     }
@@ -62,6 +97,92 @@ final class TrendsViewModel {
         // A missing plan costs the comparison line, not the chart, so it is not
         // worth an error banner over the weigh-ins that did load.
         goalSet = try? await profiles.activeGoalSet(userID: userID)
+
+        let windowStart = calendar.date(
+            byAdding: .day,
+            value: -(Self.historyLimit - 1),
+            to: calendar.startOfDay(for: now())
+        ) ?? now()
+        macroDays = (try? await macros.dailyMacros(userID: userID, since: windowStart)) ?? []
+    }
+
+    // MARK: - Macros
+
+    /// Days with nothing logged are left out rather than zeroed — a gap says
+    /// "no record", a zero-height bar claims a day of eating nothing.
+    var macroBars: [MacroBar] {
+        macroDays.flatMap { day -> [MacroBar] in
+            switch macroReading {
+            case .grams:
+                guard day.proteinGrams + day.carbsGrams + day.fatGrams > 0 else { return [] }
+                return [
+                    MacroBar(day: day.day, macro: .protein, value: day.proteinGrams),
+                    MacroBar(day: day.day, macro: .carbs, value: day.carbsGrams),
+                    MacroBar(day: day.day, macro: .fat, value: day.fatGrams)
+                ]
+            case .share:
+                guard let split = day.split else { return [] }
+                return [
+                    MacroBar(day: day.day, macro: .protein, value: split.protein * 100),
+                    MacroBar(day: day.day, macro: .carbs, value: split.carbs * 100),
+                    MacroBar(day: day.day, macro: .fat, value: split.fat * 100)
+                ]
+            }
+        }
+    }
+
+    var hasMacroHistory: Bool { !macroBars.isEmpty }
+
+    /// The same held window the weight chart uses.
+    ///
+    /// Left automatic, a single logged day collapsed the axis onto itself and
+    /// labelled all four ticks with that one date.
+    var macroXDomain: ClosedRange<Date> {
+        let today = calendar.startOfDay(for: now())
+        let weekAgo = calendar.date(byAdding: .day, value: -Self.minimumChartDays, to: today) ?? today
+
+        let plotted = macroBars.map(\.day)
+        let start = min(plotted.min() ?? weekAgo, weekAgo)
+
+        // Half a day of margin each side, so a bar sitting on the boundary is
+        // drawn whole rather than clipped in half by the plot edge.
+        return start.addingTimeInterval(-43_200)...today.addingTimeInterval(43_200)
+    }
+
+    /// Share mode is pinned to 100 so every bar is the same height and the eye
+    /// compares proportions rather than totals. Grams mode starts at zero,
+    /// because a bar chart that does not is a lie about relative size.
+    var macroYDomain: ClosedRange<Double> {
+        guard macroReading == .grams else { return 0...100 }
+
+        let dayTotals = Dictionary(grouping: macroBars, by: \.day)
+            .map { _, bars in bars.reduce(0) { $0 + $1.value } }
+
+        return 0...max((dayTotals.max() ?? 0) * 1.1, 10)
+    }
+
+    /// The window's split, weighted by what was actually eaten rather than
+    /// averaged across days: a 900 kcal Tuesday should not count for as much
+    /// as a full Wednesday in one figure.
+    var averageSplit: MacroSplit? {
+        MacroSplit(
+            proteinGrams: macroDays.reduce(0) { $0 + $1.proteinGrams },
+            carbsGrams: macroDays.reduce(0) { $0 + $1.carbsGrams },
+            fatGrams: macroDays.reduce(0) { $0 + $1.fatGrams }
+        )
+    }
+
+    var averageSplitText: String? {
+        guard let averageSplit, let days = loggedDayCount, days > 0 else { return nil }
+
+        let percentages = averageSplit.roundedPercentages
+        let span = days == 1 ? "One logged day" : "Across \(days) logged days"
+
+        return "\(span): \(percentages.protein)% protein, \(percentages.carbs)% carbs, \(percentages.fat)% fat — by calories, not by weight."
+    }
+
+    private var loggedDayCount: Int? {
+        macroDays.filter { $0.split != nil }.count
     }
 
     // MARK: - The chart

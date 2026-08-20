@@ -319,12 +319,14 @@ private actor StubGoalProfileRepository: ProfileRepository {
 @MainActor
 private func makeTrendsViewModel(
     _ weights: FakeWeightRepository,
-    goal: GoalSetSummary? = losingGoal(startedDaysAgo: 30)
+    goal: GoalSetSummary? = losingGoal(startedDaysAgo: 30),
+    macros: FakeMacroHistoryRepository = FakeMacroHistoryRepository()
 ) -> TrendsViewModel {
     TrendsViewModel(
         userID: weighInUserID,
         weights: weights,
         profiles: StubGoalProfileRepository(goal: goal),
+        macros: macros,
         now: morning
     )
 }

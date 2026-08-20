@@ -30,6 +30,7 @@ struct TrendsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     weightCard
+                    macroCard
                     comingSoon
                 }
                 .padding(.horizontal, Theme.Metrics.horizontalPadding)
@@ -249,6 +250,125 @@ struct TrendsView: View {
                     Divider().overlay(Theme.Palette.line)
                 }
             }
+        }
+    }
+
+    /// Protein, carbs and fat by day — stacked, because the question is how a
+    /// day divides, and three separate lines make the reader do that division
+    /// in their head.
+    @ViewBuilder
+    private var macroCard: some View {
+        if let viewModel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Macros")
+                        .font(.headline)
+                        .foregroundStyle(Theme.Palette.ink)
+                    Spacer()
+                }
+
+                Picker("Reading", selection: readingBinding(viewModel)) {
+                    ForEach(MacroReading.allCases) { reading in
+                        Text(reading.rawValue).tag(reading)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if viewModel.hasMacroHistory {
+                    macroChart(viewModel)
+                    macroLegend
+
+                    if let average = viewModel.averageSplitText {
+                        Text(average)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.Palette.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text("Nothing logged in the last two weeks. Log a few days and the split shows up here.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.Palette.surface, in: .rect(cornerRadius: Theme.Radius.card))
+        }
+    }
+
+    private func readingBinding(_ viewModel: TrendsViewModel) -> Binding<MacroReading> {
+        Binding(
+            get: { viewModel.macroReading },
+            set: { viewModel.macroReading = $0 }
+        )
+    }
+
+    private func macroChart(_ viewModel: TrendsViewModel) -> some View {
+        Chart(viewModel.macroBars) { bar in
+            BarMark(
+                x: .value("Day", bar.day, unit: .day),
+                y: .value(viewModel.macroReading.rawValue, bar.value)
+            )
+            .foregroundStyle(by: .value("Macro", bar.macro.rawValue))
+            .cornerRadius(3)
+        }
+        .chartForegroundStyleScale([
+            MacroBar.Macro.protein.rawValue: Theme.Palette.protein,
+            MacroBar.Macro.carbs.rawValue: Theme.Palette.carbs,
+            MacroBar.Macro.fat.rawValue: Theme.Palette.fat
+        ])
+        .chartLegend(.hidden)
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine().foregroundStyle(Theme.Palette.line)
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(viewModel.macroReading == .share ? "\(Int(number))%" : "\(Int(number))")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.Palette.inkTertiary)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(date.formatted(.dateTime.day().month(.abbreviated)))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.Palette.inkTertiary)
+                    }
+                }
+            }
+        }
+        .chartXScale(domain: viewModel.macroXDomain)
+        .chartYScale(domain: viewModel.macroYDomain)
+        .frame(height: 180)
+        .accessibilityLabel(
+            viewModel.macroReading == .share
+                ? "Each day's macros as a share of its calories"
+                : "Each day's macros in grams"
+        )
+    }
+
+    private var macroLegend: some View {
+        HStack(spacing: 16) {
+            macroKey(MacroBar.Macro.protein.rawValue, colour: Theme.Palette.protein)
+            macroKey(MacroBar.Macro.carbs.rawValue, colour: Theme.Palette.carbs)
+            macroKey(MacroBar.Macro.fat.rawValue, colour: Theme.Palette.fat)
+            Spacer()
+        }
+    }
+
+    private func macroKey(_ label: String, colour: Color) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(colour)
+                .frame(width: 10, height: 10)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(Theme.Palette.inkSecondary)
         }
     }
 
