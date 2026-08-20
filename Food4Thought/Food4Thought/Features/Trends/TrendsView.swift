@@ -275,14 +275,26 @@ struct TrendsView: View {
                 .pickerStyle(.segmented)
 
                 if viewModel.hasMacroHistory {
-                    macroChart(viewModel)
-                    macroLegend
-
-                    if let average = viewModel.averageSplitText {
-                        Text(average)
+                    switch viewModel.macroReading {
+                    case .split:
+                        dayChips(viewModel)
+                        macroPie(viewModel)
+                        sliceRows(viewModel)
+                        Text("Shares are of calories, not of weight — a gram of fat carries more than twice the energy of a gram of carbs.")
                             .font(.footnote)
                             .foregroundStyle(Theme.Palette.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+
+                    case .trend:
+                        macroChart(viewModel)
+                        macroLegend
+
+                        if let average = viewModel.averageSplitText {
+                            Text(average)
+                                .font(.footnote)
+                                .foregroundStyle(Theme.Palette.inkSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 } else {
                     Text("Nothing logged in the last two weeks. Log a few days and the split shows up here.")
@@ -294,6 +306,131 @@ struct TrendsView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.Palette.surface, in: .rect(cornerRadius: Theme.Radius.card))
+        }
+    }
+
+    /// Whole window first, then each logged day, most recent nearest the left.
+    ///
+    /// The window leads because one day's split is a meal or two away from
+    /// meaning nothing — a single big dinner can swing it twenty points.
+    private func dayChips(_ viewModel: TrendsViewModel) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                let dayCount = viewModel.loggedDays.count
+                chip(dayCount == 1 ? "1 day" : "All \(dayCount) days", isSelected: viewModel.selectedDay == nil) {
+                    viewModel.selectedDay = nil
+                }
+
+                ForEach(viewModel.loggedDays.reversed()) { day in
+                    chip(
+                        day.day.formatted(.dateTime.weekday(.abbreviated).day()),
+                        isSelected: viewModel.selectedDay.map {
+                            Calendar.current.isDate($0, inSameDayAs: day.day)
+                        } ?? false
+                    ) {
+                        viewModel.selectedDay = day.day
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func chip(_ label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(isSelected ? Theme.Palette.paper : Theme.Palette.ink)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isSelected ? Theme.Palette.ink : Theme.Palette.fill, in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A donut rather than a full pie: the hole carries the total the slices
+    /// were cut from, which is the number that makes a percentage checkable.
+    private func macroPie(_ viewModel: TrendsViewModel) -> some View {
+        Chart(viewModel.macroSlices) { slice in
+            SectorMark(
+                angle: .value("Share", slice.percentage),
+                innerRadius: .ratio(0.58),
+                angularInset: 1.5
+            )
+            .foregroundStyle(by: .value("Macro", slice.macro.rawValue))
+            .cornerRadius(4)
+            .annotation(position: .overlay) {
+                // Only where the slice can hold it: a label floating off a 3%
+                // sliver lands on its neighbour and misreads as theirs.
+                if slice.percentage >= 10 {
+                    Text("\(slice.percentage)%")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .chartForegroundStyleScale([
+            MacroBar.Macro.protein.rawValue: Theme.Palette.protein,
+            MacroBar.Macro.carbs.rawValue: Theme.Palette.carbs,
+            MacroBar.Macro.fat.rawValue: Theme.Palette.fat
+        ])
+        .chartLegend(.hidden)
+        .chartBackground { _ in
+            VStack(spacing: 1) {
+                Text("\(viewModel.selectedMacroKcal)")
+                    .font(Theme.Typography.stat(20))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text("kcal")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Palette.inkTertiary)
+            }
+        }
+        .frame(height: 200)
+        .accessibilityLabel("\(viewModel.selectedScopeLabel): " + viewModel.macroSlices
+            .map { "\($0.macro.rawValue) \($0.percentage) percent" }
+            .joined(separator: ", "))
+    }
+
+    /// The legend doubles as the readout: colour, name, percentage, and the
+    /// grams the percentage was computed from.
+    private func sliceRows(_ viewModel: TrendsViewModel) -> some View {
+        VStack(spacing: 0) {
+            ForEach(viewModel.macroSlices) { slice in
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(colour(for: slice.macro))
+                        .frame(width: 10, height: 10)
+
+                    Text(slice.macro.rawValue)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Palette.ink)
+
+                    Spacer()
+
+                    Text("\(Int(slice.grams.rounded())) g")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+
+                    Text("\(slice.percentage)%")
+                        .font(Theme.Typography.stat(15))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .padding(.vertical, 7)
+
+                if slice.id != viewModel.macroSlices.last?.id {
+                    Divider().overlay(Theme.Palette.line)
+                }
+            }
+        }
+    }
+
+    private func colour(for macro: MacroBar.Macro) -> Color {
+        switch macro {
+        case .protein: Theme.Palette.protein
+        case .carbs: Theme.Palette.carbs
+        case .fat: Theme.Palette.fat
         }
     }
 
@@ -324,7 +461,7 @@ struct TrendsView: View {
                 AxisGridLine().foregroundStyle(Theme.Palette.line)
                 AxisValueLabel {
                     if let number = value.as(Double.self) {
-                        Text(viewModel.macroReading == .share ? "\(Int(number))%" : "\(Int(number))")
+                        Text("\(Int(number))")
                             .font(.caption2)
                             .foregroundStyle(Theme.Palette.inkTertiary)
                     }
@@ -345,11 +482,7 @@ struct TrendsView: View {
         .chartXScale(domain: viewModel.macroXDomain)
         .chartYScale(domain: viewModel.macroYDomain)
         .frame(height: 180)
-        .accessibilityLabel(
-            viewModel.macroReading == .share
-                ? "Each day's macros as a share of its calories"
-                : "Each day's macros in grams"
-        )
+        .accessibilityLabel("Each day's macros in grams")
     }
 
     private var macroLegend: some View {

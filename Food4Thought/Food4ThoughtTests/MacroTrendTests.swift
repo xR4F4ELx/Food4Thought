@@ -50,8 +50,10 @@ private func makeViewModel(_ days: [DailyMacros]) -> TrendsViewModel {
 @MainActor
 struct MacroTrendTests {
 
-    @Test("share mode gives each day three segments adding up to a full bar")
-    func shareModeFillsTheBar() async {
+    @Test("the pie opens on the whole window, not on one day")
+    func pieOpensOnTheWindow() async throws {
+        // One day's split is a big dinner away from meaning nothing. The
+        // fortnight is the figure worth acting on, so it leads.
         let viewModel = makeViewModel([
             macroDay(1, protein: 130, carbs: 210, fat: 62),
             macroDay(0, protein: 96, carbs: 240, fat: 70)
@@ -59,22 +61,57 @@ struct MacroTrendTests {
 
         await viewModel.load()
 
-        #expect(viewModel.macroReading == .share)
-        #expect(viewModel.macroBars.count == 6)
+        #expect(viewModel.macroReading == .split)
+        #expect(viewModel.selectedDay == nil)
+        #expect(viewModel.selectedScopeLabel == "2 logged days")
 
-        // Every day fills to 100, which is what makes the bars comparable.
-        for day in Set(viewModel.macroBars.map(\.day)) {
-            let total = viewModel.macroBars.filter { $0.day == day }.reduce(0) { $0 + $1.value }
-            #expect(abs(total - 100) < 0.001)
-        }
+        let protein = try #require(viewModel.macroSlices.first { $0.macro == .protein })
+        #expect(protein.grams == 226)
     }
 
-    @Test("grams mode plots what was eaten, not what share of it")
-    func gramsModePlotsGrams() async throws {
+    @Test("the slices always add up to a whole pie")
+    func slicesSumToOneHundred() async {
+        let viewModel = makeViewModel([macroDay(0, protein: 100, carbs: 100, fat: 400 / 9)])
+
+        await viewModel.load()
+
+        #expect(viewModel.macroSlices.reduce(0) { $0 + $1.percentage } == 100)
+    }
+
+    @Test("picking a day narrows the pie to that day alone")
+    func selectingADayNarrowsThePie() async throws {
+        let days = [
+            macroDay(1, protein: 130, carbs: 210, fat: 62),
+            macroDay(0, protein: 96, carbs: 240, fat: 70)
+        ]
+        let viewModel = makeViewModel(days)
+        await viewModel.load()
+
+        viewModel.selectedDay = days[0].day
+
+        let protein = try #require(viewModel.macroSlices.first { $0.macro == .protein })
+        #expect(protein.grams == 130)
+        #expect(viewModel.selectedScopeLabel.isEmpty == false)
+    }
+
+    @Test("the middle of the donut is the calories the slices were cut from")
+    func donutCentreReconcilesWithTheSlices() async {
+        // Derived from the macros, not the day's logged calories: a
+        // quick-added calorie has no macros and belongs to no slice, so
+        // showing it here would leave a total the pie cannot account for.
+        let viewModel = makeViewModel([macroDay(0, protein: 100, carbs: 100, fat: 10)])
+
+        await viewModel.load()
+
+        #expect(viewModel.selectedMacroKcal == 890)
+    }
+
+    @Test("the trend still plots grams per day")
+    func trendModePlotsGrams() async throws {
         let viewModel = makeViewModel([macroDay(0, protein: 130, carbs: 210, fat: 62)])
         await viewModel.load()
 
-        viewModel.macroReading = .grams
+        viewModel.macroReading = .trend
 
         let protein = try #require(viewModel.macroBars.first { $0.macro == .protein })
         #expect(protein.value == 130)

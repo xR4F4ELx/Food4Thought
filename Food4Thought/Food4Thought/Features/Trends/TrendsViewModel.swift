@@ -35,11 +35,22 @@ struct MacroBar: Identifiable, Equatable {
     let value: Double
 }
 
-/// Grams answer "how much", shares answer "of what" — different questions
-/// about the same day, and no one chart says both well.
+/// One slice of a day's macro pie.
+struct MacroSlice: Identifiable, Equatable {
+    let id = UUID()
+    let macro: MacroBar.Macro
+    let grams: Double
+    /// Percent of the day's macro calories, rounded so the three read as 100.
+    let percentage: Int
+}
+
+/// "How does this day divide" and "how has it moved" are different questions.
+/// A pie answers the first far better than a stacked bar does — the eye reads
+/// angles as proportions without being asked to compare segment heights across
+/// columns — and answers the second not at all, which is why both stay.
 enum MacroReading: String, CaseIterable, Identifiable {
-    case share = "Share"
-    case grams = "Grams"
+    case split = "Split"
+    case trend = "Trend"
 
     var id: String { rawValue }
 }
@@ -58,10 +69,15 @@ final class TrendsViewModel {
     private(set) var macroDays: [DailyMacros] = []
     private(set) var errorMessage: String?
 
-    /// Which question the macro chart is answering. Share first: the split is
-    /// the thing that is hard to work out from the numbers on Home, where
-    /// today's grams are already on screen.
-    var macroReading: MacroReading = .share
+    /// Which question the macro card is answering. The split leads: today's
+    /// grams are already on Home, and what no screen answered was how a day
+    /// divides.
+    var macroReading: MacroReading = .split
+
+    /// Which day the pie is showing. Nil means the whole window, which is what
+    /// it opens on — one day is a meal or two away from meaning nothing, and
+    /// the fortnight is the figure worth acting on.
+    var selectedDay: Date?
 
     private let userID: UUID
     private let weights: WeightRepository
@@ -108,27 +124,77 @@ final class TrendsViewModel {
 
     // MARK: - Macros
 
+    /// The days that have something in them, oldest first — the choices the
+    /// day selector offers alongside the whole window.
+    var loggedDays: [DailyMacros] {
+        macroDays.filter { $0.split != nil }
+    }
+
+    /// What the pie is currently describing: one day, or the whole window.
+    private var selectedTotals: DailyMacros? {
+        guard let selectedDay else {
+            guard !loggedDays.isEmpty else { return nil }
+            return DailyMacros(
+                day: calendar.startOfDay(for: now()),
+                proteinGrams: loggedDays.reduce(0) { $0 + $1.proteinGrams },
+                carbsGrams: loggedDays.reduce(0) { $0 + $1.carbsGrams },
+                fatGrams: loggedDays.reduce(0) { $0 + $1.fatGrams }
+            )
+        }
+
+        return loggedDays.first { calendar.isDate($0.day, inSameDayAs: selectedDay) }
+    }
+
+    /// The pie, with each slice carrying both readings: the percentage the
+    /// angle is drawn from, and the grams it came from. A share with no grams
+    /// behind it cannot be checked against anything.
+    var macroSlices: [MacroSlice] {
+        guard let totals = selectedTotals, let split = totals.split else { return [] }
+
+        let percentages = split.roundedPercentages
+
+        return [
+            MacroSlice(macro: .protein, grams: totals.proteinGrams, percentage: percentages.protein),
+            MacroSlice(macro: .carbs, grams: totals.carbsGrams, percentage: percentages.carbs),
+            MacroSlice(macro: .fat, grams: totals.fatGrams, percentage: percentages.fat)
+        ]
+    }
+
+    /// Sits in the hole of the donut. Derived from the macros rather than the
+    /// day's logged calories, so it always reconciles with the slices around
+    /// it — a quick-added calorie has no macros and belongs to neither.
+    var selectedMacroKcal: Int {
+        guard let totals = selectedTotals else { return 0 }
+
+        let kcal = totals.proteinGrams * MacroSplit.kcalPerGramProtein
+            + totals.carbsGrams * MacroSplit.kcalPerGramCarbs
+            + totals.fatGrams * MacroSplit.kcalPerGramFat
+
+        return Int(kcal.rounded())
+    }
+
+    /// What the pie is titled — the day, or the span it covers.
+    var selectedScopeLabel: String {
+        guard let selectedDay else {
+            let days = loggedDays.count
+            return days == 1 ? "One logged day" : "\(days) logged days"
+        }
+
+        return calendar.isDateInToday(selectedDay)
+            ? "Today"
+            : selectedDay.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+
     /// Days with nothing logged are left out rather than zeroed — a gap says
     /// "no record", a zero-height bar claims a day of eating nothing.
     var macroBars: [MacroBar] {
-        macroDays.flatMap { day -> [MacroBar] in
-            switch macroReading {
-            case .grams:
-                guard day.proteinGrams + day.carbsGrams + day.fatGrams > 0 else { return [] }
-                return [
-                    MacroBar(day: day.day, macro: .protein, value: day.proteinGrams),
-                    MacroBar(day: day.day, macro: .carbs, value: day.carbsGrams),
-                    MacroBar(day: day.day, macro: .fat, value: day.fatGrams)
-                ]
-            case .share:
-                guard let split = day.split else { return [] }
-                return [
-                    MacroBar(day: day.day, macro: .protein, value: split.protein * 100),
-                    MacroBar(day: day.day, macro: .carbs, value: split.carbs * 100),
-                    MacroBar(day: day.day, macro: .fat, value: split.fat * 100)
-                ]
-            }
-        }
+        loggedDays.map {
+            [
+                MacroBar(day: $0.day, macro: .protein, value: $0.proteinGrams),
+                MacroBar(day: $0.day, macro: .carbs, value: $0.carbsGrams),
+                MacroBar(day: $0.day, macro: .fat, value: $0.fatGrams)
+            ]
+        }.flatMap { $0 }
     }
 
     var hasMacroHistory: Bool { !macroBars.isEmpty }
@@ -149,12 +215,9 @@ final class TrendsViewModel {
         return start.addingTimeInterval(-43_200)...today.addingTimeInterval(43_200)
     }
 
-    /// Share mode is pinned to 100 so every bar is the same height and the eye
-    /// compares proportions rather than totals. Grams mode starts at zero,
-    /// because a bar chart that does not is a lie about relative size.
+    /// Starts at zero, because a bar chart that does not is a lie about
+    /// relative size.
     var macroYDomain: ClosedRange<Double> {
-        guard macroReading == .grams else { return 0...100 }
-
         let dayTotals = Dictionary(grouping: macroBars, by: \.day)
             .map { _, bars in bars.reduce(0) { $0 + $1.value } }
 
