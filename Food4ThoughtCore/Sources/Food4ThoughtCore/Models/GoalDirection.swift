@@ -27,4 +27,24 @@ extension GoalType {
         case (.gain, .aggressive): self = .gainWeight
         }
     }
+
+    /// Back to the two questions, so a stored goal can be reopened in the same
+    /// terms it was chosen in. Editing a plan has to start from what the user
+    /// actually picked, not from the internal name it was filed under.
+    public var direction: GoalDirection {
+        switch self {
+        case .loseWeight, .cut: .lose
+        case .maintain: .maintain
+        case .leanBulk, .gainWeight: .gain
+        }
+    }
+
+    /// Maintain has no pace of its own; `steady` is what the questionnaire
+    /// carries for it, and round-tripping through it must not change the goal.
+    public var pace: GoalPace {
+        switch self {
+        case .cut, .gainWeight: .aggressive
+        case .loseWeight, .leanBulk, .maintain: .steady
+        }
+    }
 }

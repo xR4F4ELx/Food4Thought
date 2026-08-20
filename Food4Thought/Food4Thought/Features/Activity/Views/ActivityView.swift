@@ -114,9 +114,12 @@ struct ActivityView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Card fills, so debt uses the surface token rather than the figure one —
+    /// the figure colour lightens in dark mode and would put white text on
+    /// pale grey.
     private func heroTint(_ balance: BalanceSummary) -> Color {
         switch balance.state {
-        case .debt: Theme.Palette.debt
+        case .debt: Theme.Palette.debtSurface
         case .credit: Theme.Palette.fat
         case .square: Theme.Palette.inkSecondary
         }

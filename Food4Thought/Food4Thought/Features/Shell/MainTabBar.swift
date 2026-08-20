@@ -14,9 +14,9 @@ struct MainTabBar: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             tab(.today)
-            tab(.trends)
-            logButton
             tab(.activity)
+            logButton
+            tab(.trends)
             tab(.settings)
         }
         .padding(.horizontal, 14)

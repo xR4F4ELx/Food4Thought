@@ -33,6 +33,8 @@ private actor FakeProfileRepository: ProfileRepository {
     }
 
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool { onboarded }
+    func currentDetails(userID: UUID) async throws -> ProfileDetails? { nil }
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary? { nil }
 
     func completeOnboarding(_ submission: OnboardingSubmission) async throws {}
 

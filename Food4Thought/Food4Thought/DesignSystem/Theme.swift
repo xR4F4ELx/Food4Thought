@@ -47,7 +47,18 @@ extension Theme {
         static var credit: Color { fat }
 
         /// Muted slate, not red. Debt is a state to clear, not a failure.
+        ///
+        /// This is the *figure* colour: it lightens in dark mode so a number
+        /// drawn in it stays legible on `paper`.
         static let debt = adaptive(light: 0x4A4E57, dark: 0x8A8F99)
+
+        /// The debt banner's fill, which has to move the other way.
+        ///
+        /// Filling a card with `debt` works in light mode — dark slate under
+        /// white text — and inverts in dark, putting white text on a pale grey
+        /// at about 2.5:1. A surface token stays dark in both, so the banner
+        /// reads as the same object whichever scheme it is in.
+        static let debtSurface = adaptive(light: 0x4A4E57, dark: 0x33373F)
         /// Reserved for genuinely over target.
         static let over = adaptive(light: 0xB4231C, dark: 0xE0524A)
     }

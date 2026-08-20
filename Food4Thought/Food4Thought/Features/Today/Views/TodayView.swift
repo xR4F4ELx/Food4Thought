@@ -34,12 +34,14 @@ struct TodayView: View {
         case log(slotKey: String?)
         case detail(MealSlotGroup)
         case addMeal
+        case weighIn
 
         var id: String {
             switch self {
             case .log(let slotKey): "log-\(slotKey ?? "auto")"
             case .detail(let group): "detail-\(group.key)"
             case .addMeal: "add-meal"
+            case .weighIn: "weigh-in"
             }
         }
     }
@@ -76,6 +78,10 @@ struct TodayView: View {
                     .onDisappear { Task { await viewModel?.load() } }
             case .detail(let group):
                 detailSheet(for: group)
+            case .weighIn:
+                WeighInSheet(viewModel: WeighInViewModel(userID: userID)) {
+                    Task { await viewModel?.load() }
+                }
             case .addMeal:
                 AddMealSheet(isSaving: viewModel?.isSavingSchedule ?? false) { label, time, lasts in
                     Task {
@@ -100,6 +106,7 @@ struct TodayView: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 header
+                weighInPrompt(viewModel)
                 rings(viewModel)
                 paceRow(viewModel)
                 balanceCallout(viewModel)
@@ -126,6 +133,52 @@ struct TodayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, Theme.Metrics.horizontalPadding)
+    }
+
+    /// The morning ask, and only in the morning sense: it is here until the
+    /// day's weight is recorded and then it is gone.
+    ///
+    /// A permanent weight row would be a number Home already has no room for,
+    /// and a nag that survives being answered is the fastest way to teach
+    /// someone to ignore a screen. Trends is the other way in, for the days
+    /// this one has already been dismissed by being done.
+    @ViewBuilder
+    private func weighInPrompt(_ viewModel: TodayViewModel) -> some View {
+        if viewModel.needsWeighIn {
+            Button {
+                route = .weighIn
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "scalemass")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.accent)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Log today's weight")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.Palette.ink)
+                        if let subtitle = viewModel.weighInSubtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(Theme.Palette.inkSecondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.Palette.inkTertiary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Theme.Palette.fillSubtle, in: .rect(cornerRadius: Theme.Radius.card))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            .accessibilityHint("Opens the weigh-in sheet")
+        }
     }
 
     private var header: some View {
@@ -406,7 +459,7 @@ struct TodayView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Theme.Palette.debt, in: .rect(cornerRadius: Theme.Radius.card))
+        .background(Theme.Palette.debtSurface, in: .rect(cornerRadius: Theme.Radius.card))
         .padding(.top, 14)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)

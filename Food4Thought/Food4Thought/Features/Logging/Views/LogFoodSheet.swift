@@ -127,17 +127,7 @@ struct LogFoodSheet: View {
                     Text(FoodRepositoryError.foodInUse.errorDescription ?? "")
                 }
 
-            HStack(spacing: 18) {
-                Button("Create a food") {
-                    viewModel.customFoodRoute = .create
-                }
-                Button("Quick add calories only") {
-                    viewModel.isQuickAdding = true
-                }
-            }
-            .font(.subheadline)
-            .foregroundStyle(Theme.Palette.inkSecondary)
-            .padding(.vertical, 14)
+            escapeHatches(viewModel)
         }
         .padding(.horizontal, Theme.Metrics.horizontalPadding)
         .sheet(item: Binding(get: { viewModel.pendingPortion }, set: { viewModel.pendingPortion = $0 })) { portion in
@@ -155,6 +145,50 @@ struct LogFoodSheet: View {
         }
     }
 
+    /// The two ways out when the list cannot help: the food does not exist
+    /// anywhere, or the user does not want to look it up at all.
+    ///
+    /// They used to be plain text at the foot of the sheet, which read as a
+    /// caption rather than as something to press — and the whole point of them
+    /// is to be found by someone who has just failed to find their food. Framed
+    /// as buttons with icons, they are visibly the next thing to try, while
+    /// staying quieter than the list they sit under.
+    private func escapeHatches(_ viewModel: LogFoodViewModel) -> some View {
+        HStack(spacing: 10) {
+            escapeHatch("Create a food", symbol: "plus.circle") {
+                viewModel.customFoodRoute = .create
+            }
+            escapeHatch("Quick add calories", symbol: "bolt.circle") {
+                viewModel.isQuickAdding = true
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 14)
+    }
+
+    private func escapeHatch(
+        _ title: String,
+        symbol: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(Theme.Palette.accent)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Theme.Palette.fill, in: .rect(cornerRadius: Theme.Radius.control))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func customFoodSheet(
         _ route: LogFoodViewModel.CustomFoodRoute,
@@ -169,8 +203,7 @@ struct LogFoodSheet: View {
             CustomFoodSheet(
                 isSaving: viewModel.isCommitting,
                 draft: CustomFoodDraft(food: food),
-                title: "Edit food",
-                focusesNameOnAppear: false,
+                mode: .edit,
                 onSave: { draft in
                     Task {
                         if await viewModel.saveCustomFood(draft, to: food) {

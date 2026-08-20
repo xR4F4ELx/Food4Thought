@@ -24,6 +24,8 @@ private actor SpyProfileRepository: ProfileRepository {
     }
 
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool { false }
+    func currentDetails(userID: UUID) async throws -> ProfileDetails? { nil }
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary? { nil }
 
     func completeOnboarding(_ submission: OnboardingSubmission) async throws {
         if let failure { throw failure }

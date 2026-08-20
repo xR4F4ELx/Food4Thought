@@ -30,7 +30,7 @@ struct MainTabView: View {
                     TodayView(userID: user.id) { selection = .activity }
                         .id(todayReloadToken)
                 case .trends:
-                    TrendsView()
+                    TrendsView(userID: user.id)
                 case .activity:
                     // Logging exercise moves the balance Home shows, so Home is
                     // rebuilt the next time it is selected.

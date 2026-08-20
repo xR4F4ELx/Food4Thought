@@ -31,6 +31,8 @@ private func libraryFood(
 
 private actor LibraryProfileRepository: ProfileRepository {
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool { true }
+    func currentDetails(userID: UUID) async throws -> ProfileDetails? { nil }
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary? { nil }
     func completeOnboarding(_ submission: OnboardingSubmission) async throws {}
     func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult { .unchanged }
     func mealSchedule(userID: UUID) async throws -> MealSchedule { MealSchedule.Preset.threeMeals.schedule }

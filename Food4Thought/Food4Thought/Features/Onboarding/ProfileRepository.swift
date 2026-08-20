@@ -11,9 +11,51 @@ enum TimeZoneSyncResult: Equatable, Sendable {
     case updated
 }
 
+/// The answers the questionnaire gathered, as they stand now.
+///
+/// Everything needed to re-open that questionnaire from Settings and rewrite
+/// it — which is the same call, since `complete_onboarding` supersedes the
+/// goal set rather than refusing a second run.
+struct ProfileDetails: Equatable, Sendable {
+    let displayName: String?
+    let birthDate: Date
+    let sex: BiologicalSex
+    let heightCm: Double
+    let activityLevel: ActivityLevel
+    let goal: GoalType
+    let mealSchedule: MealSchedule
+}
+
+/// The plan currently in force, in the terms the weight projection needs.
+///
+/// `effectiveFrom` matters as much as the numbers: it is the day this plan
+/// started, and projecting from before it would draw a line the user never
+/// agreed to over days they were following different targets.
+struct GoalSetSummary: Equatable, Sendable {
+    let dailyCalorieTarget: Int
+    let totalDailyEnergyExpenditure: Double
+    let goal: GoalType
+    let effectiveFrom: Date
+
+    /// Target minus TDEE: negative on a deficit, positive on a surplus.
+    var dailyKcalDelta: Double {
+        Double(dailyCalorieTarget) - totalDailyEnergyExpenditure
+    }
+}
+
 protocol ProfileRepository: Sendable {
     /// Drives routing: a signed-in user without this set goes to onboarding.
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool
+
+    /// The open goal set, for drawing the plan against actual weight.
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary?
+
+    /// What Settings shows when someone opens their own details.
+    ///
+    /// Nil when the profile predates onboarding or has no active goal set —
+    /// there is nothing to edit yet, and inventing defaults would let someone
+    /// "save" a plan built from figures they never gave.
+    func currentDetails(userID: UUID) async throws -> ProfileDetails?
 
     /// Persists the whole questionnaire in one transaction. Partial success is
     /// the failure mode worth avoiding here — a profile without a goal set
@@ -104,6 +146,121 @@ struct SupabaseProfileRepository: ProfileRepository {
     init(client: SupabaseClient = SupabaseClientProvider.shared, calendar: Calendar = .current) {
         self.client = client
         self.calendar = calendar
+    }
+
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary? {
+        struct ActiveGoalRow: Decodable {
+            let goalType: String
+            let tdee: Double
+            let dailyCalorieTarget: Int
+            let effectiveFrom: Date
+
+            enum CodingKeys: String, CodingKey {
+                case goalType = "goal_type"
+                case tdee
+                case dailyCalorieTarget = "daily_calorie_target"
+                case effectiveFrom = "effective_from"
+            }
+        }
+
+        do {
+            let rows: [ActiveGoalRow] = try await client
+                .from("goal_sets")
+                .select("goal_type, tdee, daily_calorie_target, effective_from")
+                .eq("user_id", value: userID)
+                .is("effective_to", value: nil)
+                .limit(1)
+                .execute()
+                .value
+
+            guard let row = rows.first, let goal = GoalType(rawValue: row.goalType) else {
+                return nil
+            }
+
+            return GoalSetSummary(
+                dailyCalorieTarget: row.dailyCalorieTarget,
+                totalDailyEnergyExpenditure: row.tdee,
+                goal: goal,
+                effectiveFrom: row.effectiveFrom
+            )
+        } catch {
+            throw mapped(error)
+        }
+    }
+
+    func currentDetails(userID: UUID) async throws -> ProfileDetails? {
+        struct ProfileRow: Decodable {
+            let displayName: String?
+            /// A `date` column, so a bare `1994-03-02` — decoded as text and
+            /// parsed, because the client's decoder only understands full
+            /// timestamps and throws on this one.
+            let birthDate: String?
+            let biologicalSex: String?
+            let heightCm: Double?
+            let mealSchedule: MealSchedule?
+
+            enum CodingKeys: String, CodingKey {
+                case displayName = "display_name"
+                case birthDate = "birth_date"
+                case biologicalSex = "biological_sex"
+                case heightCm = "height_cm"
+                case mealSchedule = "meal_schedule"
+            }
+        }
+
+        struct GoalRow: Decodable {
+            let goalType: String
+            let activityLevel: String
+
+            enum CodingKeys: String, CodingKey {
+                case goalType = "goal_type"
+                case activityLevel = "activity_level"
+            }
+        }
+
+        do {
+            let profiles: [ProfileRow] = try await client
+                .from("profiles")
+                .select("display_name, birth_date, biological_sex, height_cm, meal_schedule")
+                .eq("id", value: userID)
+                .limit(1)
+                .execute()
+                .value
+
+            // The open goal set is the current one; `effective_to` is stamped
+            // when a new plan supersedes it.
+            let goals: [GoalRow] = try await client
+                .from("goal_sets")
+                .select("goal_type, activity_level")
+                .eq("user_id", value: userID)
+                .is("effective_to", value: nil)
+                .limit(1)
+                .execute()
+                .value
+
+            guard
+                let profile = profiles.first,
+                let birthDate = profile.birthDate.flatMap({ ISODay.date(from: $0, in: calendar) }),
+                let sex = profile.biologicalSex.flatMap(BiologicalSex.init(rawValue:)),
+                let heightCm = profile.heightCm,
+                let schedule = profile.mealSchedule,
+                let goalRow = goals.first,
+                let goal = GoalType(rawValue: goalRow.goalType),
+                let activityLevel = ActivityLevel(rawValue: goalRow.activityLevel)
+            else { return nil }
+
+            return ProfileDetails(
+                displayName: profile.displayName,
+                birthDate: birthDate,
+                sex: sex,
+                heightCm: heightCm,
+                activityLevel: activityLevel,
+                goal: goal,
+                mealSchedule: schedule
+            )
+        } catch {
+            throw mapped(error)
+        }
     }
 
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool {

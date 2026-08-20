@@ -59,12 +59,38 @@ final class TodayViewModel {
     /// Set while a schedule change is being written.
     private(set) var isSavingSchedule = false
 
+    /// Starts true so the prompt never flashes onto a screen that is still
+    /// loading and then vanishes a moment later.
+    private(set) var hasWeighedInToday = true
+    private(set) var lastWeighIn: WeighIn?
+
+    var needsWeighIn: Bool { !hasWeighedInToday }
+
+    /// Context for the prompt, when there is any worth giving.
+    var weighInSubtitle: String? {
+        guard let lastWeighIn else { return "Your first one — it's what Trends is built on" }
+
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: lastWeighIn.recordedAt),
+            to: calendar.startOfDay(for: now())
+        ).day ?? 0
+
+        let weight = "\(WeighInDraft.format(lastWeighIn.weightKg)) kg"
+        return switch days {
+        case ..<1: "Last: \(weight), earlier today"
+        case 1: "Last: \(weight), yesterday"
+        default: "Last: \(weight), \(days) days ago"
+        }
+    }
+
     // MARK: - Dependencies
 
     private let userID: UUID
     private let today: TodayReading
     private let foods: FoodRepository
     private let profiles: ProfileRepository
+    private let weights: WeightRepository
     private let calendar: Calendar
     private let now: @Sendable () -> Date
 
@@ -73,6 +99,7 @@ final class TodayViewModel {
         today: TodayReading = SupabaseTodayRepository(),
         foods: FoodRepository = SupabaseFoodRepository(),
         profiles: ProfileRepository = SupabaseProfileRepository(),
+        weights: WeightRepository = SupabaseWeightRepository(),
         calendar: Calendar = .current,
         now: @escaping @Sendable () -> Date = { .now }
     ) {
@@ -80,6 +107,7 @@ final class TodayViewModel {
         self.today = today
         self.foods = foods
         self.profiles = profiles
+        self.weights = weights
         self.calendar = calendar
         self.now = now
     }
@@ -98,6 +126,23 @@ final class TodayViewModel {
             // rings with a note beat an empty dashboard that looks like a
             // deleted account.
             errorMessage = message(for: error)
+        }
+
+        await loadWeighInState()
+    }
+
+    /// Whether today has a weight yet, and what the last one was.
+    ///
+    /// Failures are swallowed on purpose: this drives a prompt, and a prompt
+    /// that cannot be drawn is not worth an error where the day's calories are.
+    /// The cost of getting it wrong is a missing row, not a wrong number.
+    private func loadWeighInState() async {
+        do {
+            hasWeighedInToday = try await weights.todaysWeighIn(userID: userID) != nil
+            lastWeighIn = try await weights.recentWeighIns(userID: userID, limit: 1).first
+        } catch {
+            hasWeighedInToday = true
+            lastWeighIn = nil
         }
     }
 

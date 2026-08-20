@@ -33,6 +33,8 @@ private actor SpyProfileRepository: ProfileRepository {
     init(failure: (any Error)? = nil) { self.failure = failure }
 
     func hasCompletedOnboarding(userID: UUID) async throws -> Bool { true }
+    func currentDetails(userID: UUID) async throws -> ProfileDetails? { nil }
+    func activeGoalSet(userID: UUID) async throws -> GoalSetSummary? { nil }
     func completeOnboarding(_ submission: OnboardingSubmission) async throws {}
     func syncTimeZone(_ identifier: String, userID: UUID) async throws -> TimeZoneSyncResult { .unchanged }
     func mealSchedule(userID: UUID) async throws -> MealSchedule { MealSchedule.Preset.threeMeals.schedule }
@@ -104,13 +106,15 @@ private func addingDay() -> Date {
 private func makeViewModel(
     _ repository: FakeTodayRepository,
     foods: FakeFoodRepository = FakeFoodRepository(),
-    profiles: SpyProfileRepository = SpyProfileRepository()
+    profiles: SpyProfileRepository = SpyProfileRepository(),
+    weights: FakeWeightRepository = FakeWeightRepository(today: addingDay())
 ) -> TodayViewModel {
     TodayViewModel(
         userID: todayUserID,
         today: repository,
         foods: foods,
         profiles: profiles,
+        weights: weights,
         now: { addingDay() }
     )
 }

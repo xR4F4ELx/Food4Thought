@@ -13,10 +13,15 @@ import Foundation
 /// the sheet is where someone is already looking at lists of foods — creating,
 /// correcting and removing one now happen next to the search that failed to
 /// find it, rather than a tab away.
+///
+/// Declared in bar order, left to right, with the log button between the second
+/// and third. Today and Activity are the two screens a day is logged *from*, so
+/// they sit together on the near side of it; Trends and Settings are both places
+/// you go to look at something, so they pair on the far side.
 enum AppTab: String, CaseIterable, Identifiable {
     case today
-    case trends
     case activity
+    case trends
     case settings
 
     var id: String { rawValue }

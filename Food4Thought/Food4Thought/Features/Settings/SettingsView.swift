@@ -1,16 +1,43 @@
 import SwiftUI
 
-/// Settings — handoff 6b. The grouped sections are stubbed until the screens
-/// behind them exist; what's here is the account row that already works.
+/// Settings — handoff 6b.
+///
+/// Two things live here that do not fit anywhere else: the answers behind the
+/// targets, and how the app looks. Both are things you change rarely and want
+/// to find in one predictable place, which is what Settings is for.
 struct SettingsView: View {
     let user: AuthenticatedUser
 
     @Environment(AppState.self) private var appState
+    @AppStorage(AppearancePreference.storageKey) private var appearance: AppearancePreference = .system
     @State private var resetError: String?
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink("Your details") {
+                        EditDetailsView(viewModel: EditDetailsViewModel(userID: user.id))
+                    }
+                } header: {
+                    Text("You")
+                } footer: {
+                    Text("Height, weight, age, activity and goal — the answers your targets are calculated from.")
+                }
+
+                Section {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppearancePreference.allCases) { preference in
+                            Text(preference.title).tag(preference)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("System follows your phone, including its sunset schedule.")
+                }
+
                 Section("Account") {
                     if let email = user.email {
                         LabeledContent("Signed in as", value: email)
